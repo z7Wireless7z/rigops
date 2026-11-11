@@ -2,7 +2,7 @@
    Tiene l'app disponibile anche senza rete (in cantiere capita spesso).
    ⚠️ Alzare VERSIONE a ogni pubblicazione, altrimenti i telefoni
    continuano a mostrare la versione vecchia presa dalla cache. */
-const VERSIONE = 'rigops-v3';
+const VERSIONE = 'rigops-v4';
 const FILE = [
   './',
   './index.html',

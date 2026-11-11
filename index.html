@@ -302,6 +302,7 @@ const I = {
   trash:`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>`,
   check:`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`,
   search:`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>`,
+  lista:`<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>`,
   users:`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
   pkg:`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 9.4 7.55 4.24"/><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.29 7 12 12 20.71 7"/><line x1="12" y1="22" x2="12" y2="12"/></svg>`,
   map:`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>`,
@@ -874,13 +875,32 @@ function renderMagazzino(){
   return `<div class="su" style="padding:1.5rem;display:flex;flex-direction:column;gap:1.25rem">
     <header><h1 class="fd" style="${sTit}">Magazzino</h1><p style="${sSot}">Scorte e materiali</p></header>
 
-    ${S.showManageSugg?`<div style="background:rgba(24,24,27,.6);border:1px solid var(--bordo);border-radius:1.25rem;padding:1rem;display:flex;flex-direction:column;gap:.75rem">
-      <p style="${sSot}">Suggerimenti rapidi</p>
-      <div style="display:flex;flex-wrap:wrap;gap:.4rem">
-        ${S.sugg.map((s,i)=>`<span style="display:flex;align-items:center;gap:.3rem;background:var(--bordo);padding:.3rem .7rem;border-radius:9999px;font-size:.68rem;font-weight:700;color:var(--testo)">${esc(s)}<button onclick="rmSugg(${i})" style="background:none;border:none;color:var(--t3);cursor:pointer;font-size:.9rem;padding:0">×</button></span>`).join('')}
+    ${S.showManageSugg?`<div style="background:var(--sup);border:1px solid var(--bordo);border-radius:1.25rem;padding:1.1rem;display:flex;flex-direction:column;gap:.9rem">
+      <div>
+        <p style="${sSot}">I vostri materiali</p>
+        <p style="font-size:.68rem;color:var(--t2);line-height:1.45;margin-top:.3rem">Scrivi qui tutto quello che usate. Poi basta toccare il nome per metterlo in magazzino.</p>
       </div>
-      <input placeholder="Aggiungi + Invio" style="background:var(--bordo);border:none;border-radius:.75rem;font-size:.75rem;padding:.6rem 1rem;color:var(--testo)"
-        onkeydown="if(event.key==='Enter'&&this.value){addSugg(this.value);this.value=''}">
+      <div style="display:flex;gap:.5rem">
+        <input id="sugg-in" placeholder="Nome del materiale" autocomplete="off"
+          style="flex:1;background:var(--bg);border:1px solid var(--bordo);border-radius:.8rem;font-size:.8rem;padding:.7rem 1rem;color:var(--testo)"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();addSugg()}">
+        <button onclick="addSugg()" style="background:var(--acc);color:var(--acc-su);border:none;border-radius:.8rem;padding:0 1.1rem;font-size:.7rem;font-weight:900;text-transform:uppercase;cursor:pointer;display:flex;align-items:center;gap:.35rem">${I.plus}</button>
+      </div>
+      ${S.sugg.length?`<div style="display:flex;flex-wrap:wrap;gap:.45rem">
+        ${S.sugg.map((s,i)=>{
+          const giaInMagazzino = S.materials.some(m=>m.nome.toLowerCase()===s.toLowerCase());
+          return `<span style="display:flex;align-items:center;background:${giaInMagazzino?'rgba(var(--acc-rgb),.14)':'var(--bordo)'};border:1px solid ${giaInMagazzino?'rgba(var(--acc-rgb),.35)':'transparent'};border-radius:9999px;overflow:hidden">
+            <button onclick="daSugg(${i})" title="${giaInMagazzino?'Già in magazzino':'Mettilo in magazzino'}"
+              style="background:none;border:none;cursor:pointer;padding:.4rem .3rem .4rem .8rem;font-size:.7rem;font-weight:700;color:${giaInMagazzino?'var(--acc)':'var(--testo)'};display:flex;align-items:center;gap:.3rem">
+              ${giaInMagazzino?'✓':'+'} ${esc(s)}
+            </button>
+            <button onclick="rmSugg(${i})" title="Togli dalla lista"
+              style="background:none;border:none;color:var(--t3);cursor:pointer;font-size:1rem;line-height:1;padding:.4rem .7rem .5rem .3rem">×</button>
+          </span>`;
+        }).join('')}
+      </div>
+      <p style="font-size:.62rem;color:var(--t4);line-height:1.4">Tocca il nome per aggiungerlo al magazzino · la × lo toglie da questa lista</p>`
+      :`<p style="text-align:center;color:var(--t4);font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;padding:1rem 0">Lista vuota</p>`}
     </div>`:''}
 
     <div style="position:relative">
@@ -888,7 +908,7 @@ function renderMagazzino(){
         <input id="mat-in" placeholder="Nuovo materiale..." value="${esc(S.newMat)}" oninput="S.newMat=this.value;updSugg()" onfocus="updSugg()" onblur="setTimeout(hideSugg,200)"
           style="flex:1;background:transparent;border:none;font-size:.9rem;padding:0 .5rem;color:var(--testo)"
           onkeydown="if(event.key==='Enter')addMat()">
-        <button onclick="S.showManageSugg=!S.showManageSugg;render()" style="width:2.1rem;height:2.1rem;border-radius:.6rem;border:1px solid var(--bordo);background:${S.showManageSugg?'var(--acc)':'var(--sup)'};color:${S.showManageSugg?'var(--bg)':'var(--t2)'};cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">${I.search}</button>
+        <button onclick="S.showManageSugg=!S.showManageSugg;render()" title="La lista dei vostri materiali" style="width:2.1rem;height:2.1rem;border-radius:.6rem;border:1px solid var(--bordo);background:${S.showManageSugg?'var(--acc)':'var(--sup)'};color:${S.showManageSugg?'var(--acc-su)':'var(--t2)'};cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">${I.lista}</button>
         <button onclick="addMat()" style="background:var(--acc);color:var(--bg);padding:.7rem;border-radius:.7rem;border:none;cursor:pointer;display:flex;flex-shrink:0">${I.plus}</button>
       </div>
       <div id="sugg-box" style="display:none;position:absolute;z-index:20;left:0;right:0;top:calc(100% + .5rem);background:var(--sup);border:1px solid var(--bordo);border-radius:1rem;overflow:hidden;max-height:12rem;overflow-y:auto"></div>
@@ -945,8 +965,27 @@ function updSugg(){
 }
 const hideSugg=()=>{const el=document.getElementById('sugg-box');if(el)el.style.display='none';};
 function pickSugg(v){ S.newMat=v; const i=document.getElementById('mat-in'); if(i)i.value=v; hideSugg(); }
-function addSugg(v){ if(!v||S.sugg.includes(v))return; save('sugg',[...S.sugg,v]); render(); }
+// Prima dipendeva solo dal tasto Invio e su molte tastiere del telefono
+// quel tasto non arriva: ora c'e' il bottone +, e il campo resta attivo
+// per scrivere il materiale successivo senza ritoccarlo ogni volta.
+function addSugg(){
+  const el=document.getElementById('sugg-in');
+  const v=(el?.value||'').trim();
+  if(!v) return avviso('Scrivi il nome del materiale','ko');
+  if(S.sugg.some(s=>s.toLowerCase()===v.toLowerCase())) return avviso('C\'è già nella lista','ko');
+  save('sugg',[...S.sugg,v]);
+  render();
+  const nuovo=document.getElementById('sugg-in'); if(nuovo){ nuovo.value=''; nuovo.focus(); }
+}
 function rmSugg(i){ save('sugg',S.sugg.filter((_,j)=>j!==i)); render(); }
+// Toccando un nome della lista il materiale entra in magazzino a quantita' 0.
+function daSugg(i){
+  const nome=S.sugg[i]; if(!nome) return;
+  if(S.materials.some(m=>m.nome.toLowerCase()===nome.toLowerCase())) return avviso(`${nome} è già in magazzino`,'ko');
+  save('materials',[...S.materials,{id:db.id(),nome,qta:0,allarme:false,agg:new Date().toISOString()}]);
+  render();
+  avviso(`${nome} aggiunto al magazzino`);
+}
 function addMat(){
   const nome=(document.getElementById('mat-in')?.value||S.newMat).trim();
   if(!nome) return avviso('Scrivi il nome del materiale','ko');
