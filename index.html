@@ -326,9 +326,9 @@ function renderRegAzienda(){
     ${intestazione('Registra Azienda','Sei il titolare: crei la squadra')}
     <div style="width:100%;max-width:22rem;display:flex;flex-direction:column;gap:1rem">
       <div><label style="${sLabel}">Nome dell'azienda</label>
-        <input id="r-az" style="${sInput}" placeholder="es. Soluzioni Verticali" value="${esc(S.reg.az||'')}"></div>
+        <input id="r-az" style="${sInput}" placeholder="es. Edilquota Srl" value="${esc(S.reg.az||'')}"></div>
       <div><label style="${sLabel}">Il tuo nome e cognome</label>
-        <input id="r-nome" style="${sInput}" placeholder="es. Simone Ursino" value="${esc(S.reg.nome||'')}"></div>
+        <input id="r-nome" style="${sInput}" placeholder="es. Mario Rossi" value="${esc(S.reg.nome||'')}"></div>
       <div><label style="${sLabel}">Email</label>
         <input id="r-mail" type="email" style="${sInput}" placeholder="la tua email" value="${esc(S.reg.mail||'')}"></div>
       <div><label style="${sLabel}">Password</label>
@@ -347,7 +347,7 @@ function renderRegOperatore(){
       <div><label style="${sLabel}">Codice azienda</label>
         <input id="o-cod" style="${sInput};text-transform:uppercase;letter-spacing:.2em;font-weight:900;text-align:center;font-size:1.1rem" placeholder="RIG-XXXX" maxlength="8"></div>
       <div><label style="${sLabel}">Nome e cognome</label>
-        <input id="o-nome" style="${sInput}" placeholder="es. Luca Rossi"></div>
+        <input id="o-nome" style="${sInput}" placeholder="es. Luigi Bianchi"></div>
       <div><label style="${sLabel}">Ruolo in squadra</label>
         <input id="o-ruolo" style="${sInput}" placeholder="es. Operatore su fune"></div>
       <div><label style="${sLabel}">Email</label>
@@ -835,7 +835,7 @@ function renderNewPrjModal(){
         <button onclick="S.showNewPrj=false;render()" style="color:#71717a;background:none;border:none;cursor:pointer;font-weight:700;font-size:.8rem">Chiudi</button>
       </div>
       <div><label style="${sLabel}">Nome cantiere</label>
-        <input id="np-name" value="${esc(S.newPrj.name)}" oninput="S.newPrj.name=this.value" placeholder="es. Condominio San Giusto" style="${sInput}"></div>
+        <input id="np-name" value="${esc(S.newPrj.name)}" oninput="S.newPrj.name=this.value" placeholder="es. Condominio Via Roma 12" style="${sInput}"></div>
       <div style="position:relative">
         <label style="${sLabel}">Indirizzo</label>
         <div style="position:relative">

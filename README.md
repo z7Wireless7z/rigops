@@ -81,4 +81,4 @@ di sicurezza: se svuoti la cache, senza backup non torna niente.
 
 ---
 
-*Progetto personale di Simone Ursino. Costruito con [Claude Code](https://claude.com/claude-code).*
+*Costruito con [Claude Code](https://claude.com/claude-code).*
