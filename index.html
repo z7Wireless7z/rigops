@@ -44,6 +44,7 @@ const S = {
   azienda:   db.get('azienda', null),     // {nome, codice, creata}
   account:   db.get('account', null),     // utente di questo dispositivo
   membri:    db.get('membri', []),        // squadra (in locale: finta)
+  credenziali: db.get('credenziali', {}), // email -> password cifrata (solo per l'anteprima locale)
   dispositivi: db.get('dispositivi', []), // max 2 per account
   materials: db.get('materials',[]),
   projects:  db.get('projects',[]),
@@ -76,7 +77,10 @@ const mascheraEmail = e => { const [a,b]=String(e||'').split('@'); return a ? a[
 // Hash elementare: in locale non teniamo password in chiaro.
 // Con Supabase le password non passeranno nemmeno da qui: le cifra il server.
 const hash = s => { let h=0; for(let i=0;i<s.length;i++){h=((h<<5)-h)+s.charCodeAt(i);h|=0} return 'h'+Math.abs(h).toString(36); };
-const codiceAzienda = () => 'RIG-'+Array.from({length:4},()=>'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.floor(Math.random()*32)]).join('');
+// 8 caratteri su un alfabeto di 32 (niente I, O, 0, 1: si confondono quando
+// uno detta il codice al telefono) = 1.099.511.627.776 combinazioni possibili.
+// Con 4 caratteri erano solo un milione: indovinabili da un programma.
+const codiceAzienda = () => 'RIG-'+Array.from({length:8},()=>'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.floor(Math.random()*32)]).join('');
 const codiceOTP = () => String(Math.floor(100000+Math.random()*900000));
 
 function avviso(testo, tipo='ok'){ S.msg={testo,tipo}; render(); setTimeout(()=>{S.msg=null;render()},3200); }
@@ -281,6 +285,7 @@ function logoGrande(){
 function renderOnboarding(){
   const c = {
     scelta: renderScelta, azienda: renderRegAzienda,
+    'conferma-azienda': renderConfermaAzienda,
     operatore: renderRegOperatore, accedi: renderAccedi,
   }[S.schermata] || renderScelta;
   return `<div class="su" style="height:100dvh;overflow-y:auto;background:#09090b;padding:2rem 1.5rem 3rem;display:flex;flex-direction:column;align-items:center;gap:1.75rem">${c()}</div>`;
@@ -323,20 +328,65 @@ function intestazione(titolo, sotto){
 
 function renderRegAzienda(){
   return `
-    ${intestazione('Registra Azienda','Sei il titolare: crei la squadra')}
+    ${intestazione('Registra Azienda','Due passi: l\'azienda e il titolare')}
+
+    <!-- ① L'AZIENDA -->
     <div style="width:100%;max-width:22rem;display:flex;flex-direction:column;gap:1rem">
+      <div style="display:flex;align-items:center;gap:.6rem">
+        <span style="width:1.5rem;height:1.5rem;border-radius:50%;background:#f97316;color:#09090b;font-size:.7rem;font-weight:900;display:flex;align-items:center;justify-content:center">1</span>
+        <p style="${sSot};color:#f97316">L'azienda</p>
+      </div>
       <div><label style="${sLabel}">Nome dell'azienda</label>
         <input id="r-az" style="${sInput}" placeholder="es. Edilquota Srl" value="${esc(S.reg.az||'')}"></div>
-      <div><label style="${sLabel}">Il tuo nome e cognome</label>
-        <input id="r-nome" style="${sInput}" placeholder="es. Mario Rossi" value="${esc(S.reg.nome||'')}"></div>
-      <div><label style="${sLabel}">Email</label>
-        <input id="r-mail" type="email" style="${sInput}" placeholder="la tua email" value="${esc(S.reg.mail||'')}"></div>
+      <div><label style="${sLabel}">Email dell'azienda</label>
+        <input id="r-mail" type="email" inputmode="email" autocomplete="email" style="${sInput}" placeholder="es. info@edilquota.it" value="${esc(S.reg.mail||'')}">
+        <p style="font-size:.65rem;color:#52525b;margin-top:.4rem;line-height:1.4">Ci arriverà il codice di conferma. Sarà anche l'email con cui il titolare entra nell'app.</p></div>
+
+      <div style="height:1px;background:#27272a;margin:.5rem 0"></div>
+
+      <!-- ② IL TITOLARE -->
+      <div style="display:flex;align-items:center;gap:.6rem">
+        <span style="width:1.5rem;height:1.5rem;border-radius:50%;background:#f97316;color:#09090b;font-size:.7rem;font-weight:900;display:flex;align-items:center;justify-content:center">2</span>
+        <p style="${sSot};color:#f97316">Registra il titolare</p>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
+        <div><label style="${sLabel}">Nome</label>
+          <input id="r-nome" style="${sInput}" placeholder="es. Mario" value="${esc(S.reg.nome||'')}"></div>
+        <div><label style="${sLabel}">Cognome</label>
+          <input id="r-cog" style="${sInput}" placeholder="es. Rossi" value="${esc(S.reg.cog||'')}"></div>
+      </div>
+      <div><label style="${sLabel}">Ruolo</label>
+        <input id="r-ruolo" style="${sInput}" placeholder="es. Titolare" value="${esc(S.reg.ruolo||'')}"></div>
       <div><label style="${sLabel}">Password</label>
-        <input id="r-pwd" type="password" style="${sInput}" placeholder="almeno 8 caratteri"></div>
-      <button onclick="creaAzienda()" style="${sBtn};margin-top:.5rem">Crea l'azienda</button>
+        <input id="r-pwd" type="password" autocomplete="new-password" style="${sInput}" placeholder="almeno 8 caratteri"></div>
+
+      <button onclick="creaAzienda()" style="${sBtn};margin-top:.75rem">Crea l'azienda</button>
     </div>
+
     <div style="max-width:22rem;background:rgba(249,115,22,.07);border:1px solid rgba(249,115,22,.25);border-radius:1.25rem;padding:1rem">
-      <p style="font-size:.7rem;color:#a1a1aa;line-height:1.5">Alla fine ricevi un <b style="color:#f97316">codice azienda</b>: è quello che darai ai tuoi operai per farli entrare. Potrai cambiarlo quando vuoi.</p>
+      <p style="font-size:.7rem;color:#a1a1aa;line-height:1.5">Dopo la conferma dell'email ricevi il <b style="color:#f97316">codice azienda</b>: è quello che darai ai tuoi operai per farli entrare. Potrai cambiarlo quando vuoi.</p>
+    </div>`;
+}
+
+// Conferma dell'email: prima di creare l'azienda, l'email va dimostrata.
+// Serve perche' su quella casella arriveranno i codici per sostituire i
+// dispositivi: se e' sbagliata, un domani il titolare resta fuori dall'app.
+function renderConfermaAzienda(){
+  return `
+    ${intestazione('Conferma l\'email','Ultimo passo')}
+    <p style="font-size:.85rem;color:#a1a1aa;line-height:1.6;text-align:center;max-width:21rem">
+      Abbiamo inviato un codice a<br><b style="color:#f97316">${esc(S.reg.mail)}</b>
+    </p>
+    <div style="${sCard};width:100%;max-width:22rem;background:rgba(249,115,22,.07);border-color:rgba(249,115,22,.3)">
+      <p style="${sSot};margin-bottom:.5rem">Anteprima locale — il codice è</p>
+      <p class="fd" style="font-size:2rem;font-weight:900;letter-spacing:.3em;color:#f97316;text-align:center">${S.reg.codiceEmail}</p>
+      <p style="font-size:.65rem;color:#52525b;text-align:center;margin-top:.5rem">Col server attivo arriva per email e scade in 10 minuti</p>
+    </div>
+    <div style="width:100%;max-width:22rem;display:flex;flex-direction:column;gap:1rem">
+      <input id="conf-otp" inputmode="numeric" maxlength="6" style="${sInput};text-align:center;font-size:1.5rem;letter-spacing:.4em;font-weight:900" placeholder="------">
+      <button onclick="confermaAzienda()" style="${sBtn}">Conferma e crea l'azienda</button>
+      <p style="font-size:.7rem;color:#52525b;text-align:center">Tentativi rimasti: ${3-(S.reg.tentativi||0)}</p>
+      <button onclick="vai('azienda')" style="background:none;border:none;color:#52525b;font-size:.75rem;font-weight:700;cursor:pointer">Correggi i dati</button>
     </div>`;
 }
 
@@ -345,7 +395,7 @@ function renderRegOperatore(){
     ${intestazione('Registra Operatore','Entri nella squadra con il codice')}
     <div style="width:100%;max-width:22rem;display:flex;flex-direction:column;gap:1rem">
       <div><label style="${sLabel}">Codice azienda</label>
-        <input id="o-cod" style="${sInput};text-transform:uppercase;letter-spacing:.2em;font-weight:900;text-align:center;font-size:1.1rem" placeholder="RIG-XXXX" maxlength="8"></div>
+        <input id="o-cod" style="${sInput};text-transform:uppercase;letter-spacing:.12em;font-weight:900;text-align:center;font-size:1rem" placeholder="RIG-XXXXXXXX" maxlength="12"></div>
       <div><label style="${sLabel}">Nome e cognome</label>
         <input id="o-nome" style="${sInput}" placeholder="es. Luigi Bianchi"></div>
       <div><label style="${sLabel}">Ruolo in squadra</label>
@@ -374,21 +424,36 @@ function renderAccedi(){
 function vai(s){ S.schermata=s; render(); }
 
 function creaAzienda(){
-  const az=val('r-az'), nome=val('r-nome'), mail=val('r-mail'), pwd=val('r-pwd');
-  if(!az)   return avviso('Scrivi il nome dell\'azienda','ko');
-  if(!nome) return avviso('Scrivi il tuo nome','ko');
-  if(!mail.includes('@')) return avviso('Email non valida','ko');
+  const az=val('r-az'), mail=val('r-mail'), nome=val('r-nome'), cog=val('r-cog'), ruolo=val('r-ruolo'), pwd=val('r-pwd');
+  if(!az) return avviso('Scrivi il nome dell\'azienda','ko');
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(mail)) return avviso('Email dell\'azienda non valida','ko');
+  if(!nome) return avviso('Scrivi il nome del titolare','ko');
+  if(!cog)  return avviso('Scrivi il cognome del titolare','ko');
   if(pwd.length<8) return avviso('La password deve avere almeno 8 caratteri','ko');
-  const [n,...r]=nome.split(' ');
-  const codice=codiceAzienda();
-  save('azienda',{nome:az,codice,creata:new Date().toISOString(),approvaTutti:true});
-  const acc={id:db.id(),nome:n,cognome:r.join(' '),email:mail,pwd:hash(pwd),tipo:'capo',ruolo:'Titolare',qualifiche:'',photo64:'',stato:'attivo'};
-  save('account',acc);
-  save('membri',[{...acc,pwd:undefined}]);
-  registraDispositivo();
-  addTimeline(`Ha creato l'azienda ${az}`,'SUCCESS');
+  // I dati restano in sospeso finche' l'email non e' confermata.
+  S.reg={az,mail,nome,cog,ruolo:ruolo||'Titolare',pwd,codiceEmail:codiceOTP(),tentativi:0};
+  S.schermata='conferma-azienda';
   render();
-  avviso('Azienda creata! Il codice è nel Profilo');
+}
+
+function confermaAzienda(){
+  const inserito=val('conf-otp');
+  if(inserito!==S.reg.codiceEmail){
+    S.reg.tentativi=(S.reg.tentativi||0)+1;
+    if(S.reg.tentativi>=3){ S.reg={}; S.schermata='azienda'; render(); return avviso('Troppi tentativi. Ricomincia la registrazione.','ko'); }
+    render(); return avviso('Codice sbagliato','ko');
+  }
+  const r=S.reg;
+  save('azienda',{nome:r.az,email:r.mail,emailConfermata:true,codice:codiceAzienda(),creata:new Date().toISOString(),approvaTutti:true});
+  const acc={id:db.id(),nome:r.nome,cognome:r.cog,email:r.mail,pwd:hash(r.pwd),tipo:'capo',ruolo:r.ruolo,qualifiche:'',photo64:'',stato:'attivo'};
+  save('account',acc);              // il titolare entra gia' loggato
+  save('membri',[{...acc,pwd:undefined}]);
+  save('credenziali',{...S.credenziali,[r.mail]:hash(r.pwd)});
+  registraDispositivo();
+  addTimeline(`Ha creato l'azienda ${r.az}`,'SUCCESS');
+  S.reg={}; S.schermata='scelta';
+  render();
+  avviso('Azienda creata! Il codice per gli operai è nel Profilo');
 }
 
 function entraInAzienda(){
@@ -403,6 +468,7 @@ function entraInAzienda(){
   const acc={id:db.id(),nome:n,cognome:r.join(' '),email:mail,pwd:hash(pwd),tipo:'operatore',ruolo:ruolo||'Operatore',qualifiche:'',photo64:'',stato:'attesa'};
   save('account',acc);
   save('membri',[...S.membri,{...acc,pwd:undefined}]);
+  save('credenziali',{...S.credenziali,[mail]:hash(pwd)});
   registraDispositivo();
   render();
 }
@@ -411,10 +477,11 @@ function accedi(){
   const mail=val('a-mail'), pwd=val('a-pwd');
   const m=S.membri.find(x=>x.email===mail);
   if(!m) return avviso('Nessun account con questa email su questo dispositivo','ko');
-  if(S.account && S.account.email===mail && S.account.pwd!==hash(pwd)) return avviso('Password sbagliata','ko');
+  if(S.credenziali[mail] && S.credenziali[mail]!==hash(pwd)) return avviso('Password sbagliata','ko');
   save('account',{...m,pwd:hash(pwd)});
   if(!verificaDispositivo()) return;
   render();
+  avviso(`Bentornato ${m.nome}`);
 }
 
 const val = id => (document.getElementById(id)?.value||'').trim();
@@ -1053,11 +1120,12 @@ function renderProfilo(){
     <!-- AZIENDA -->
     <section style="${sCard};border-color:rgba(249,115,22,.25);background:rgba(249,115,22,.05)">
       <p style="${sSot};margin-bottom:.75rem">La tua azienda</p>
-      <h3 class="fd" style="font-size:1.1rem;font-weight:900;text-transform:uppercase;font-style:italic;margin-bottom:1rem">${esc(S.azienda?.nome||'')}</h3>
+      <h3 class="fd" style="font-size:1.1rem;font-weight:900;text-transform:uppercase;font-style:italic;margin-bottom:.4rem">${esc(S.azienda?.nome||'')}</h3>
+      ${S.azienda?.email?`<p style="font-size:.7rem;color:#71717a;margin-bottom:1rem">${esc(S.azienda.email)} ${S.azienda.emailConfermata?'<span style="color:#22c55e;font-weight:700">· confermata ✓</span>':''}</p>`:'<div style="height:.6rem"></div>'}
       <p style="${sLabel}">Codice da dare agli operai</p>
       <div style="display:flex;gap:.5rem;align-items:center">
         <div style="flex:1;background:#09090b;border:1px dashed rgba(249,115,22,.4);border-radius:1rem;padding:.9rem;text-align:center">
-          <span class="fd" style="font-size:1.3rem;font-weight:900;letter-spacing:.2em;color:#f97316">${esc(S.azienda?.codice||'')}</span>
+          <span class="fd" style="font-size:1.05rem;font-weight:900;letter-spacing:.14em;color:#f97316;word-break:break-all">${esc(S.azienda?.codice||'')}</span>
         </div>
         ${p.tipo==='capo'?`<button onclick="nuovoCodice()" style="background:#27272a;color:#a1a1aa;border:none;border-radius:1rem;padding:.9rem;font-size:.65rem;font-weight:900;text-transform:uppercase;cursor:pointer">Cambia</button>`:''}
       </div>
