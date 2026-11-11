@@ -1,0 +1,1198 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+<title>RigOps</title>
+<meta name="theme-color" content="#0f172a">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Outfit:wght@700;800;900&display=swap" rel="stylesheet">
+<style>
+  body { font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; }
+  .fd { font-family: 'Outfit', sans-serif; }
+  * { box-sizing: border-box; scrollbar-width: none; -ms-overflow-style: none; }
+  *::-webkit-scrollbar { display: none; }
+  input, textarea, button, select { font-family: inherit; }
+  input:focus, textarea:focus { outline: none; }
+  @keyframes su { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
+  .su { animation: su .25s ease both; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+  .pulse { animation: pulse 2s ease-in-out infinite; }
+</style>
+</head>
+<body class="bg-zinc-950 text-zinc-100 overflow-hidden" style="height:100dvh">
+<div id="app" style="height:100dvh;width:100%"></div>
+<script>
+/* ══════════════════════════════════════════════════════════════
+   RigOps — anteprima locale
+   I dati stanno in questo browser. Il collegamento fra i membri
+   della squadra (Supabase) e' il passo successivo del piano.
+   ══════════════════════════════════════════════════════════════ */
+
+// ── STORAGE ────────────────────────────────────────────────────
+const db = {
+  get:(k,d)=>{try{const v=localStorage.getItem('rig_'+k);return v?JSON.parse(v):d}catch{return d}},
+  set:(k,v)=>{try{localStorage.setItem('rig_'+k,JSON.stringify(v));return true}catch(e){alert('Memoria del browser piena. Esporta un backup dal Profilo e libera spazio.');return false}},
+  id:()=>Math.random().toString(36).slice(2,9)+Date.now().toString(36)
+};
+
+// ── STATO ──────────────────────────────────────────────────────
+const S = {
+  azienda:   db.get('azienda', null),     // {nome, codice, creata}
+  account:   db.get('account', null),     // utente di questo dispositivo
+  membri:    db.get('membri', []),        // squadra (in locale: finta)
+  dispositivi: db.get('dispositivi', []), // max 2 per account
+  materials: db.get('materials',[]),
+  projects:  db.get('projects',[]),
+  timeline:  db.get('timeline',[]),
+  briefing:  db.get('briefing',''),
+  notes:     db.get('notes',[]),
+  sugg:      db.get('sugg',['Corda Semistatica 10.5mm','Corda Dinamica 9.8mm','Moschettone a Ghiera','Moschettone Triact-Lock','Discensore Autofrenante','Anticaduta Mobile','Imbracatura Integrale','Casco Ventilato','Ancoraggio Tessile','Punto di Ancoraggio Inox','Tassello Chimico','Sacco Porta Materiale 30L']),
+  // volatili
+  schermata: 'scelta', tab:'home', selPrj:null, prjTab:'info', editMilId:null,
+  showNewPrj:false, showManageSugg:false, showSquadra:false,
+  matSearch:'', newMat:'', noteImgs:[], weather:null,
+  addrSugg:[], newPrj:{name:'',desc:'',addr:'',date:new Date().toISOString().slice(0,10)}, newPrjCoords:null,
+  reg:{}, sostituzione:null, codiceInviato:null, msg:null, lightbox:null,
+};
+
+function save(key,val){ S[key]=val; db.set(key,val); }
+
+function addTimeline(details, tipo='INFO'){
+  const name = S.account ? `${S.account.nome} ${S.account.cognome}`.trim() : 'Operatore';
+  save('timeline',[{id:db.id(),tipo,userName:name,details,timestamp:new Date().toISOString()},...S.timeline].slice(0,80));
+}
+
+// ── UTILI ──────────────────────────────────────────────────────
+const fmtTime = ts => new Date(ts).toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'});
+const fmtData = d => new Date(d).toLocaleDateString('it-IT');
+const fmtDataOra = d => new Date(d).toLocaleString('it-IT',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+const iniz = n => (n||'?').split(' ').map(x=>x[0]).join('').toUpperCase().slice(0,2);
+const esc = s => String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+const mascheraEmail = e => { const [a,b]=String(e||'').split('@'); return a ? a[0]+'****'+a.slice(-1)+'@'+(b||'') : ''; };
+// Hash elementare: in locale non teniamo password in chiaro.
+// Con Supabase le password non passeranno nemmeno da qui: le cifra il server.
+const hash = s => { let h=0; for(let i=0;i<s.length;i++){h=((h<<5)-h)+s.charCodeAt(i);h|=0} return 'h'+Math.abs(h).toString(36); };
+const codiceAzienda = () => 'RIG-'+Array.from({length:4},()=>'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.floor(Math.random()*32)]).join('');
+const codiceOTP = () => String(Math.floor(100000+Math.random()*900000));
+
+function avviso(testo, tipo='ok'){ S.msg={testo,tipo}; render(); setTimeout(()=>{S.msg=null;render()},3200); }
+
+// ── COMPRESSIONE FOTO ──────────────────────────────────────────
+// Una foto da telefono pesa 3-4 MB e riempirebbe la memoria in pochi scatti.
+// Qui si scende a ~400 KB MA tenendo il lato lungo a 1920px e la qualita' all'82%:
+// e' piu' della risoluzione di qualunque schermo di telefono, quindi a schermo
+// intero resta nitida e si puo' zoomare senza vedere i quadretti.
+function comprimi(file, latoMax=1920, qualita=0.82){
+  return new Promise(res=>{
+    const r=new FileReader();
+    r.onload=()=>{
+      const img=new Image();
+      img.onload=()=>{
+        let {width:w,height:h}=img;
+        if(w>latoMax||h>latoMax){ const s=latoMax/Math.max(w,h); w=Math.round(w*s); h=Math.round(h*s); }
+        const c=document.createElement('canvas'); c.width=w; c.height=h;
+        c.getContext('2d').drawImage(img,0,0,w,h);
+        res(c.toDataURL('image/jpeg',qualita));
+      };
+      img.onerror=()=>res(null);
+      img.src=r.result;
+    };
+    r.onerror=()=>res(null);
+    r.readAsDataURL(file);
+  });
+}
+const pesoKB = s => Math.round((String(s).length*0.75)/1024);
+
+// ── VISORE FOTO A SCHERMO INTERO, CON ZOOM ─────────────────────
+// Apre la foto grande, si zooma con due dita (o rotella sul PC),
+// doppio tocco per ingrandire al volo, si trascina per spostarsi.
+function apriFotoPrj(pid,i){ const p=S.projects.find(x=>x.id===pid); if(p) aprivisore(p.foto,i,p.nome); }
+function apriFotoNota(nid,i){ const n=S.notes.find(x=>x.id===nid); if(n) aprivisore(n.imgs,i,'Taccuino'); }
+function aprivisore(foto,i,titolo){ S.lightbox={foto,i,titolo}; render(); setTimeout(agganciaZoom,20); }
+function chiudiVisore(){ S.lightbox=null; render(); }
+function scorriFoto(d){
+  const L=S.lightbox; if(!L) return;
+  L.i=(L.i+d+L.foto.length)%L.foto.length;
+  render(); setTimeout(agganciaZoom,20);
+}
+
+function renderVisore(){
+  const L=S.lightbox;
+  return `<div style="position:fixed;inset:0;background:#000;z-index:300;display:flex;flex-direction:column">
+    <header style="display:flex;justify-content:space-between;align-items:center;padding:1rem 1.25rem;padding-top:calc(1rem + env(safe-area-inset-top));background:rgba(0,0,0,.6);z-index:2">
+      <div style="min-width:0">
+        <p style="font-size:.8rem;font-weight:900;color:white;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(L.titolo||'')}</p>
+        <p style="font-size:.65rem;color:#71717a;font-weight:700">${L.i+1} di ${L.foto.length} · ${pesoKB(L.foto[L.i])} KB</p>
+      </div>
+      <button onclick="chiudiVisore()" style="background:rgba(39,39,42,.8);color:white;border:none;border-radius:1rem;padding:.6rem 1rem;font-size:.7rem;font-weight:900;text-transform:uppercase;cursor:pointer;flex-shrink:0">Chiudi</button>
+    </header>
+    <div id="lb-area" style="flex:1;overflow:hidden;position:relative;touch-action:none;display:flex;align-items:center;justify-content:center">
+      <img id="lb-img" src="${L.foto[L.i]}" draggable="false"
+        style="max-width:100%;max-height:100%;object-fit:contain;transform-origin:center center;will-change:transform;user-select:none">
+    </div>
+    ${L.foto.length>1?`<div style="display:flex;justify-content:center;gap:1rem;padding:1rem;padding-bottom:calc(1rem + env(safe-area-inset-bottom));background:rgba(0,0,0,.6)">
+      <button onclick="scorriFoto(-1)" style="background:rgba(39,39,42,.8);color:white;border:none;border-radius:1rem;padding:.7rem 1.5rem;font-size:1rem;cursor:pointer">‹</button>
+      <button onclick="scorriFoto(1)" style="background:rgba(39,39,42,.8);color:white;border:none;border-radius:1rem;padding:.7rem 1.5rem;font-size:1rem;cursor:pointer">›</button>
+    </div>`:''}
+    <p id="lb-hint" style="position:absolute;bottom:${L.foto.length>1?'5.5rem':'1.5rem'};left:0;right:0;text-align:center;font-size:.62rem;color:#52525b;font-weight:700;text-transform:uppercase;letter-spacing:.1em;pointer-events:none">Due dita per zoomare · doppio tocco</p>
+  </div>`;
+}
+
+function agganciaZoom(){
+  const area=document.getElementById('lb-area'), img=document.getElementById('lb-img');
+  if(!area||!img) return;
+  let scala=1, tx=0, ty=0;
+  const punt=new Map(); let dist0=0, scala0=1, cx=0, cy=0, tx0=0, ty0=0;
+
+  const applica=()=>{
+    if(scala<=1){ scala=1; tx=0; ty=0; }
+    img.style.transform=`translate(${tx}px,${ty}px) scale(${scala})`;
+    const h=document.getElementById('lb-hint'); if(h) h.style.opacity = scala>1?'0':'1';
+  };
+  area.addEventListener('pointerdown',e=>{
+    area.setPointerCapture(e.pointerId);
+    punt.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    if(punt.size===2){
+      const [a,b]=[...punt.values()];
+      dist0=Math.hypot(a.x-b.x,a.y-b.y); scala0=scala;
+      cx=(a.x+b.x)/2; cy=(a.y+b.y)/2; tx0=tx; ty0=ty;
+    } else { tx0=tx; ty0=ty; cx=e.clientX; cy=e.clientY; }
+  });
+  area.addEventListener('pointermove',e=>{
+    if(!punt.has(e.pointerId)) return;
+    punt.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    if(punt.size===2){
+      const [a,b]=[...punt.values()];
+      const d=Math.hypot(a.x-b.x,a.y-b.y);
+      scala=Math.min(6,Math.max(1,scala0*(d/dist0)));
+      applica();
+    } else if(scala>1){
+      tx=tx0+(e.clientX-cx); ty=ty0+(e.clientY-cy);
+      applica();
+    }
+  });
+  const su=e=>{ punt.delete(e.pointerId); if(punt.size<2){ scala0=scala; tx0=tx; ty0=ty; } };
+  area.addEventListener('pointerup',su);
+  area.addEventListener('pointercancel',su);
+  area.addEventListener('wheel',e=>{
+    e.preventDefault();
+    scala=Math.min(6,Math.max(1,scala*(e.deltaY<0?1.15:0.87)));
+    applica();
+  },{passive:false});
+  let ultimoTap=0;
+  area.addEventListener('click',()=>{
+    const ora=Date.now();
+    if(ora-ultimoTap<300){ scala=scala>1?1:2.5; applica(); }
+    ultimoTap=ora;
+  });
+}
+function spazioUsato(){
+  let tot=0; for(const k in localStorage){ if(k.startsWith('rig_')) tot+=localStorage[k].length; }
+  return (tot/1024/1024).toFixed(2);
+}
+
+// ── METEO ──────────────────────────────────────────────────────
+async function meteo(lat=45.6495,lng=13.7768){
+  try{
+    const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,weather_code&timezone=auto`);
+    S.weather=(await r.json()).current;
+    const el=document.getElementById('meteo'); if(el) el.outerHTML=pillolaMeteo();
+  }catch{}
+}
+const iconaMeteo = c => c==null?'🌤️':c===0?'☀️':c<=3?'⛅':c<=48?'🌫️':c<=67?'🌧️':c>=95?'⛈️':'🌤️';
+const pillolaMeteo = () => S.weather
+  ? `<div id="meteo" style="display:flex;align-items:center;gap:.4rem;background:#18181b;border:1px solid #27272a;padding:.5rem .75rem;border-radius:1rem;font-size:.8rem;font-weight:900">${iconaMeteo(S.weather.weather_code)} ${Math.round(S.weather.temperature_2m)}°</div>`
+  : `<div id="meteo"></div>`;
+
+// ── ICONE ──────────────────────────────────────────────────────
+const I = {
+  plus:`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
+  minus:`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
+  trash:`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>`,
+  check:`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`,
+  search:`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>`,
+  users:`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
+  pkg:`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 9.4 7.55 4.24"/><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.29 7 12 12 20.71 7"/><line x1="12" y1="22" x2="12" y2="12"/></svg>`,
+  map:`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>`,
+  img:`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`,
+  send:`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>`,
+  back:`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>`,
+  bell:`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>`,
+  belloff:`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.73 21a2 2 0 0 1-3.46 0"/><path d="M18.63 13A17.89 17.89 0 0 1 18 8"/><path d="M6.26 6.26A5.86 5.86 0 0 0 6 8c0 7-3 9-3 9h14"/><path d="M18 8a6 6 0 0 0-9.33-5"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`,
+  user:`<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`,
+  cam:`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>`,
+  book:`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>`,
+  cal:`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>`,
+  phone:`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>`,
+  pc:`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`,
+  lock:`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`,
+  down:`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`,
+  up:`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>`,
+};
+
+// ── STILI RIUSABILI ────────────────────────────────────────────
+const sInput = 'width:100%;background:#09090b;border:1px solid #27272a;border-radius:1rem;padding:1rem;font-size:.9rem;color:white';
+const sLabel = 'font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.15em;color:#52525b;display:block;margin-bottom:.5rem';
+const sBtn   = 'width:100%;background:#f97316;color:#09090b;font-weight:900;padding:1.1rem;border-radius:1.25rem;font-size:.72rem;text-transform:uppercase;letter-spacing:.12em;border:none;cursor:pointer';
+const sBtn2  = 'width:100%;background:#18181b;color:#d4d4d8;font-weight:900;padding:1.1rem;border-radius:1.25rem;font-size:.72rem;text-transform:uppercase;letter-spacing:.12em;border:1px solid #27272a;cursor:pointer';
+const sCard  = 'background:#18181b;border:1px solid #27272a;border-radius:1.5rem;padding:1.25rem';
+const sTit   = 'font-size:1.5rem;font-weight:900;text-transform:uppercase;font-style:italic;letter-spacing:-.03em';
+const sSot   = 'font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.15em;color:#52525b';
+
+// ══════════════════════════════════════════════════════════════
+//  RENDER PRINCIPALE
+// ══════════════════════════════════════════════════════════════
+function render(){
+  const app=document.getElementById('app');
+  let html;
+  if(!S.account)                 html = renderOnboarding();
+  else if(S.sostituzione)        html = renderSostituzione();
+  else if(S.account.stato==='attesa') html = renderInAttesa();
+  else if(S.selPrj)              html = renderPrjDetail();
+  else html = `
+    <div style="height:100dvh;display:flex;flex-direction:column;overflow:hidden">
+      <div style="flex:1;overflow-y:auto;padding-bottom:5.5rem">${renderPagina()}</div>
+      ${renderNav()}
+    </div>
+    ${S.showNewPrj?renderNewPrjModal():''}
+    ${S.showSquadra?renderSquadraModal():''}`;
+  app.innerHTML = html + (S.lightbox?renderVisore():'') + (S.msg?renderAvviso():'');
+}
+
+function renderAvviso(){
+  const c = S.msg.tipo==='ko' ? '#ef4444' : '#22c55e';
+  return `<div class="su" style="position:fixed;left:1rem;right:1rem;bottom:6.5rem;z-index:200;background:#18181b;border:1px solid ${c};border-radius:1.25rem;padding:1rem 1.25rem;display:flex;gap:.75rem;align-items:center;box-shadow:0 10px 40px rgba(0,0,0,.6)">
+    <span style="font-size:1.1rem">${S.msg.tipo==='ko'?'⚠️':'✅'}</span>
+    <span style="font-size:.8rem;font-weight:600;color:#e4e4e7;line-height:1.4">${esc(S.msg.testo)}</span>
+  </div>`;
+}
+
+// ══════════════════════════════════════════════════════════════
+//  ① ONBOARDING — Registra Azienda / Registra Operatore / Accedi
+// ══════════════════════════════════════════════════════════════
+function logoGrande(){
+  return `<img src="icons/icon-512.png" alt="RigOps" style="width:7.5rem;height:7.5rem;border-radius:2rem;object-fit:cover;box-shadow:0 0 50px rgba(249,115,22,.25)">`;
+}
+
+function renderOnboarding(){
+  const c = {
+    scelta: renderScelta, azienda: renderRegAzienda,
+    operatore: renderRegOperatore, accedi: renderAccedi,
+  }[S.schermata] || renderScelta;
+  return `<div class="su" style="height:100dvh;overflow-y:auto;background:#09090b;padding:2rem 1.5rem 3rem;display:flex;flex-direction:column;align-items:center;gap:1.75rem">${c()}</div>`;
+}
+
+function renderScelta(){
+  return `
+    ${logoGrande()}
+    <div style="text-align:center">
+      <h1 class="fd" style="font-size:2.75rem;font-weight:900;text-transform:uppercase;font-style:italic;letter-spacing:-.04em;line-height:1">RIG<span style="color:#f97316">OPS</span></h1>
+      <p style="${sSot};margin-top:.5rem">Gestione squadre e cantieri</p>
+    </div>
+    <div style="width:100%;max-width:22rem;display:flex;flex-direction:column;gap:.9rem;margin-top:.5rem">
+      <button onclick="vai('azienda')" style="${sBtn};padding:1.35rem">🏢 &nbsp;Registra Azienda</button>
+      <button onclick="vai('operatore')" style="${sBtn2};padding:1.35rem">👷 &nbsp;Registra Operatore</button>
+      <div style="height:1px;background:#27272a;margin:.5rem 0"></div>
+      <button onclick="vai('accedi')" style="background:none;border:none;color:#71717a;font-size:.8rem;font-weight:700;cursor:pointer;padding:.5rem">Ho già un account — <span style="color:#f97316">Accedi</span></button>
+    </div>
+    <div style="max-width:22rem;background:rgba(24,24,27,.6);border:1px solid #27272a;border-radius:1.25rem;padding:1rem;display:flex;gap:.75rem">
+      <span style="font-size:1rem">💡</span>
+      <p style="font-size:.7rem;color:#71717a;line-height:1.5">
+        <b style="color:#a1a1aa">Il capo</b> registra l'azienda e ottiene un codice.<br>
+        <b style="color:#a1a1aa">Gli operai</b> usano quel codice per entrare nella squadra.
+      </p>
+    </div>
+    <p style="font-size:.6rem;color:#3f3f46;font-weight:700;text-transform:uppercase;letter-spacing:.15em;text-align:center;margin-top:auto;padding-top:1.5rem">Anteprima locale · i dati restano su questo dispositivo</p>`;
+}
+
+function intestazione(titolo, sotto){
+  return `
+    <div style="width:100%;max-width:22rem;display:flex;align-items:center;gap:.75rem">
+      <button onclick="vai('scelta')" style="background:#18181b;border:1px solid #27272a;border-radius:.9rem;padding:.6rem;color:#a1a1aa;cursor:pointer;display:flex">${I.back}</button>
+      <img src="icons/icon-192.png" style="width:2.25rem;height:2.25rem;border-radius:.75rem;object-fit:cover">
+    </div>
+    <div style="width:100%;max-width:22rem">
+      <h2 class="fd" style="${sTit}">${titolo}</h2>
+      <p style="${sSot};margin-top:.25rem">${sotto}</p>
+    </div>`;
+}
+
+function renderRegAzienda(){
+  return `
+    ${intestazione('Registra Azienda','Sei il titolare: crei la squadra')}
+    <div style="width:100%;max-width:22rem;display:flex;flex-direction:column;gap:1rem">
+      <div><label style="${sLabel}">Nome dell'azienda</label>
+        <input id="r-az" style="${sInput}" placeholder="es. Soluzioni Verticali" value="${esc(S.reg.az||'')}"></div>
+      <div><label style="${sLabel}">Il tuo nome e cognome</label>
+        <input id="r-nome" style="${sInput}" placeholder="es. Simone Ursino" value="${esc(S.reg.nome||'')}"></div>
+      <div><label style="${sLabel}">Email</label>
+        <input id="r-mail" type="email" style="${sInput}" placeholder="la tua email" value="${esc(S.reg.mail||'')}"></div>
+      <div><label style="${sLabel}">Password</label>
+        <input id="r-pwd" type="password" style="${sInput}" placeholder="almeno 8 caratteri"></div>
+      <button onclick="creaAzienda()" style="${sBtn};margin-top:.5rem">Crea l'azienda</button>
+    </div>
+    <div style="max-width:22rem;background:rgba(249,115,22,.07);border:1px solid rgba(249,115,22,.25);border-radius:1.25rem;padding:1rem">
+      <p style="font-size:.7rem;color:#a1a1aa;line-height:1.5">Alla fine ricevi un <b style="color:#f97316">codice azienda</b>: è quello che darai ai tuoi operai per farli entrare. Potrai cambiarlo quando vuoi.</p>
+    </div>`;
+}
+
+function renderRegOperatore(){
+  return `
+    ${intestazione('Registra Operatore','Entri nella squadra con il codice')}
+    <div style="width:100%;max-width:22rem;display:flex;flex-direction:column;gap:1rem">
+      <div><label style="${sLabel}">Codice azienda</label>
+        <input id="o-cod" style="${sInput};text-transform:uppercase;letter-spacing:.2em;font-weight:900;text-align:center;font-size:1.1rem" placeholder="RIG-XXXX" maxlength="8"></div>
+      <div><label style="${sLabel}">Nome e cognome</label>
+        <input id="o-nome" style="${sInput}" placeholder="es. Luca Rossi"></div>
+      <div><label style="${sLabel}">Ruolo in squadra</label>
+        <input id="o-ruolo" style="${sInput}" placeholder="es. Operatore su fune"></div>
+      <div><label style="${sLabel}">Email</label>
+        <input id="o-mail" type="email" style="${sInput}" placeholder="la tua email"></div>
+      <div><label style="${sLabel}">Password</label>
+        <input id="o-pwd" type="password" style="${sInput}" placeholder="almeno 8 caratteri"></div>
+      <button onclick="entraInAzienda()" style="${sBtn};margin-top:.5rem">Chiedi di entrare</button>
+    </div>
+    <div style="max-width:22rem;background:rgba(24,24,27,.6);border:1px solid #27272a;border-radius:1.25rem;padding:1rem">
+      <p style="font-size:.7rem;color:#71717a;line-height:1.5">La richiesta resta <b style="color:#a1a1aa">in attesa</b> finché qualcuno della squadra non ti approva. Riceverai l'accesso appena succede.</p>
+    </div>`;
+}
+
+function renderAccedi(){
+  return `
+    ${intestazione('Accedi','Rientra nel tuo account')}
+    <div style="width:100%;max-width:22rem;display:flex;flex-direction:column;gap:1rem">
+      <div><label style="${sLabel}">Email</label><input id="a-mail" type="email" style="${sInput}" placeholder="la tua email"></div>
+      <div><label style="${sLabel}">Password</label><input id="a-pwd" type="password" style="${sInput}" placeholder="password"></div>
+      <button onclick="accedi()" style="${sBtn};margin-top:.5rem">Entra</button>
+    </div>`;
+}
+
+function vai(s){ S.schermata=s; render(); }
+
+function creaAzienda(){
+  const az=val('r-az'), nome=val('r-nome'), mail=val('r-mail'), pwd=val('r-pwd');
+  if(!az)   return avviso('Scrivi il nome dell\'azienda','ko');
+  if(!nome) return avviso('Scrivi il tuo nome','ko');
+  if(!mail.includes('@')) return avviso('Email non valida','ko');
+  if(pwd.length<8) return avviso('La password deve avere almeno 8 caratteri','ko');
+  const [n,...r]=nome.split(' ');
+  const codice=codiceAzienda();
+  save('azienda',{nome:az,codice,creata:new Date().toISOString(),approvaTutti:true});
+  const acc={id:db.id(),nome:n,cognome:r.join(' '),email:mail,pwd:hash(pwd),tipo:'capo',ruolo:'Titolare',qualifiche:'',photo64:'',stato:'attivo'};
+  save('account',acc);
+  save('membri',[{...acc,pwd:undefined}]);
+  registraDispositivo();
+  addTimeline(`Ha creato l'azienda ${az}`,'SUCCESS');
+  render();
+  avviso('Azienda creata! Il codice è nel Profilo');
+}
+
+function entraInAzienda(){
+  const cod=val('o-cod').toUpperCase(), nome=val('o-nome'), ruolo=val('o-ruolo'), mail=val('o-mail'), pwd=val('o-pwd');
+  if(!cod) return avviso('Serve il codice azienda','ko');
+  if(!S.azienda) return avviso('Su questo dispositivo non c\'è nessuna azienda. In anteprima locale devi prima registrarne una.','ko');
+  if(cod!==S.azienda.codice) return avviso('Codice azienda sbagliato','ko');
+  if(!nome) return avviso('Scrivi il tuo nome','ko');
+  if(!mail.includes('@')) return avviso('Email non valida','ko');
+  if(pwd.length<8) return avviso('La password deve avere almeno 8 caratteri','ko');
+  const [n,...r]=nome.split(' ');
+  const acc={id:db.id(),nome:n,cognome:r.join(' '),email:mail,pwd:hash(pwd),tipo:'operatore',ruolo:ruolo||'Operatore',qualifiche:'',photo64:'',stato:'attesa'};
+  save('account',acc);
+  save('membri',[...S.membri,{...acc,pwd:undefined}]);
+  registraDispositivo();
+  render();
+}
+
+function accedi(){
+  const mail=val('a-mail'), pwd=val('a-pwd');
+  const m=S.membri.find(x=>x.email===mail);
+  if(!m) return avviso('Nessun account con questa email su questo dispositivo','ko');
+  if(S.account && S.account.email===mail && S.account.pwd!==hash(pwd)) return avviso('Password sbagliata','ko');
+  save('account',{...m,pwd:hash(pwd)});
+  if(!verificaDispositivo()) return;
+  render();
+}
+
+const val = id => (document.getElementById(id)?.value||'').trim();
+
+// ══════════════════════════════════════════════════════════════
+//  ② IN ATTESA DI APPROVAZIONE
+// ══════════════════════════════════════════════════════════════
+function renderInAttesa(){
+  return `<div class="su" style="height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1.5rem;padding:2rem;text-align:center;background:#09090b">
+    ${logoGrande()}
+    <div>
+      <h2 class="fd" style="${sTit}">In attesa</h2>
+      <p style="font-size:.85rem;color:#71717a;line-height:1.6;max-width:20rem;margin-top:.75rem">
+        La tua richiesta di entrare in <b style="color:#f97316">${esc(S.azienda?.nome||'')}</b> è stata inviata.<br>
+        Chiunque della squadra può approvarla.
+      </p>
+    </div>
+    <div style="${sCard};max-width:20rem;width:100%">
+      <p style="${sSot};margin-bottom:.75rem">Anteprima</p>
+      <button onclick="autoApprova()" style="${sBtn}">Simula: ti hanno approvato</button>
+    </div>
+    <button onclick="esci()" style="background:none;border:none;color:#52525b;font-size:.75rem;font-weight:700;cursor:pointer">Esci</button>
+  </div>`;
+}
+function autoApprova(){
+  const a={...S.account,stato:'attivo'};
+  save('account',a);
+  save('membri',S.membri.map(m=>m.id===a.id?{...m,stato:'attivo'}:m));
+  addTimeline(`${a.nome} ${a.cognome} è entrato nella squadra`,'SUCCESS');
+  render(); avviso('Benvenuto nella squadra!');
+}
+function esci(){ localStorage.removeItem('rig_account'); S.account=null; S.schermata='scelta'; render(); }
+
+// ══════════════════════════════════════════════════════════════
+//  ③ DISPOSITIVI — massimo 2 per account
+// ══════════════════════════════════════════════════════════════
+function impronta(){
+  let f=localStorage.getItem('rig_impronta');
+  if(!f){ f=db.id()+db.id(); localStorage.setItem('rig_impronta',f); }
+  return f;
+}
+function tipoDispositivo(){
+  return /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) ? 'telefono' : 'pc';
+}
+function nomeDispositivo(){
+  const u=navigator.userAgent;
+  if(/iPhone/i.test(u)) return 'iPhone';
+  if(/iPad/i.test(u)) return 'iPad';
+  if(/Android/i.test(u)) return 'Telefono Android';
+  if(/Mac/i.test(u)) return 'Mac';
+  if(/Windows/i.test(u)) return 'PC Windows';
+  return 'Dispositivo';
+}
+function registraDispositivo(){
+  const f=impronta();
+  const miei=S.dispositivi.filter(d=>d.accountId===S.account.id);
+  if(miei.some(d=>d.impronta===f)){
+    save('dispositivi',S.dispositivi.map(d=>d.impronta===f&&d.accountId===S.account.id?{...d,ultimo:new Date().toISOString()}:d));
+    return true;
+  }
+  if(miei.length>=2) return false;
+  save('dispositivi',[...S.dispositivi,{id:db.id(),accountId:S.account.id,impronta:f,tipo:tipoDispositivo(),nome:nomeDispositivo(),ultimo:new Date().toISOString(),registrato:new Date().toISOString()}]);
+  return true;
+}
+function verificaDispositivo(){
+  if(registraDispositivo()) return true;
+  S.sostituzione={fase:'scegli',scelto:null,codice:null,tentativi:0};
+  render();
+  return false;
+}
+
+function renderSostituzione(){
+  const miei=S.dispositivi.filter(d=>d.accountId===S.account.id);
+  const S_=S.sostituzione;
+  let corpo;
+
+  if(S_.fase==='scegli'){
+    corpo=`
+      <p style="font-size:.85rem;color:#a1a1aa;line-height:1.6;text-align:center;max-width:21rem">
+        Il tuo account ha già <b style="color:#f97316">due dispositivi</b> registrati.<br>Quale vuoi sostituire con questo?
+      </p>
+      <div style="width:100%;max-width:21rem;display:flex;flex-direction:column;gap:.75rem">
+        ${miei.map(d=>`
+          <button onclick="scegliSostituzione('${d.id}')" style="${sCard};display:flex;align-items:center;gap:1rem;cursor:pointer;text-align:left;width:100%">
+            <div style="background:#27272a;padding:.75rem;border-radius:1rem;color:#f97316;display:flex">${d.tipo==='telefono'?I.phone:I.pc}</div>
+            <div style="flex:1">
+              <p style="font-weight:900;font-size:.9rem;color:white">${esc(d.nome)}</p>
+              <p style="font-size:.65rem;color:#52525b;font-weight:700;margin-top:.15rem">Ultimo accesso: ${fmtDataOra(d.ultimo)}</p>
+            </div>
+            <span style="color:#3f3f46;font-size:1.25rem">›</span>
+          </button>`).join('')}
+      </div>
+      <div style="max-width:21rem;background:rgba(24,24,27,.6);border:1px solid #27272a;border-radius:1.25rem;padding:1rem">
+        <p style="font-size:.7rem;color:#71717a;line-height:1.5">Il dispositivo che sostituisci viene <b style="color:#a1a1aa">scollegato subito</b>. Se il vecchio telefono è stato rubato, chi ce l'ha in mano perde l'accesso nello stesso istante.</p>
+      </div>
+      <button onclick="S.sostituzione=null;esci()" style="background:none;border:none;color:#52525b;font-size:.75rem;font-weight:700;cursor:pointer">Annulla</button>`;
+  }
+
+  else if(S_.fase==='codice'){
+    const d=miei.find(x=>x.id===S_.scelto);
+    corpo=`
+      <p style="font-size:.85rem;color:#a1a1aa;line-height:1.6;text-align:center;max-width:21rem">
+        Abbiamo inviato un codice a<br><b style="color:#f97316">${mascheraEmail(S.account.email)}</b>
+      </p>
+      <div style="${sCard};width:100%;max-width:21rem;background:rgba(249,115,22,.07);border-color:rgba(249,115,22,.3)">
+        <p style="${sSot};margin-bottom:.5rem">Anteprima locale — il codice è</p>
+        <p class="fd" style="font-size:2rem;font-weight:900;letter-spacing:.3em;color:#f97316;text-align:center">${S_.codice}</p>
+        <p style="font-size:.65rem;color:#52525b;text-align:center;margin-top:.5rem">Con il server attivo arriva per email e scade in 10 minuti</p>
+      </div>
+      <div style="width:100%;max-width:21rem;display:flex;flex-direction:column;gap:1rem">
+        <input id="otp" inputmode="numeric" maxlength="6" style="${sInput};text-align:center;font-size:1.5rem;letter-spacing:.4em;font-weight:900" placeholder="------">
+        <button onclick="confermaSostituzione()" style="${sBtn}">Conferma sostituzione</button>
+        <p style="font-size:.7rem;color:#52525b;text-align:center">Sostituirai: <b style="color:#a1a1aa">${esc(d?.nome||'')}</b> · tentativi rimasti: ${3-S_.tentativi}</p>
+      </div>
+      <button onclick="S.sostituzione.fase='scegli';render()" style="background:none;border:none;color:#52525b;font-size:.75rem;font-weight:700;cursor:pointer">Indietro</button>`;
+  }
+
+  return `<div class="su" style="height:100dvh;overflow-y:auto;background:#09090b;padding:2.5rem 1.5rem;display:flex;flex-direction:column;align-items:center;gap:1.5rem">
+    <img src="icons/icon-192.png" style="width:4rem;height:4rem;border-radius:1.25rem;object-fit:cover">
+    <div style="text-align:center">
+      <h2 class="fd" style="${sTit}">Dispositivi pieni</h2>
+      <p style="${sSot};margin-top:.25rem">Massimo due per account</p>
+    </div>
+    ${corpo}</div>`;
+}
+
+function scegliSostituzione(id){
+  S.sostituzione.scelto=id;
+  S.sostituzione.codice=codiceOTP();
+  S.sostituzione.fase='codice';
+  render();
+}
+function confermaSostituzione(){
+  const inserito=val('otp');
+  if(inserito!==S.sostituzione.codice){
+    S.sostituzione.tentativi++;
+    if(S.sostituzione.tentativi>=3){ S.sostituzione=null; render(); return avviso('Troppi tentativi. Richiedi un nuovo codice.','ko'); }
+    render(); return avviso('Codice sbagliato','ko');
+  }
+  const vecchio=S.sostituzione.scelto;
+  save('dispositivi',[
+    ...S.dispositivi.filter(d=>d.id!==vecchio),
+    {id:db.id(),accountId:S.account.id,impronta:impronta(),tipo:tipoDispositivo(),nome:nomeDispositivo(),ultimo:new Date().toISOString(),registrato:new Date().toISOString()}
+  ]);
+  addTimeline('Ha sostituito un dispositivo','WARNING');
+  S.sostituzione=null;
+  render(); avviso('Dispositivo sostituito');
+}
+
+// ══════════════════════════════════════════════════════════════
+//  ④ NAVIGAZIONE
+// ══════════════════════════════════════════════════════════════
+function renderPagina(){
+  return {home:renderHome, magazzino:renderMagazzino, cantieri:renderCantieri,
+          taccuino:renderTaccuino, profilo:renderProfilo}[S.tab]();
+}
+function renderNav(){
+  const t=[{id:'home',l:'Home',i:'🏠'},{id:'magazzino',l:'Magazzino',i:'📦'},{id:'cantieri',l:'Cantieri',i:'🏗️'},{id:'taccuino',l:'Taccuino',i:'📝'},{id:'profilo',l:'Profilo',i:'👤'}];
+  const attesa=S.membri.filter(m=>m.stato==='attesa').length;
+  return `<nav style="position:fixed;bottom:0;left:0;right:0;background:rgba(24,24,27,.9);backdrop-filter:blur(14px);border-top:1px solid #27272a;display:flex;justify-content:space-around;padding:8px 0 calc(8px + env(safe-area-inset-bottom));z-index:50">
+    ${t.map(x=>`<button onclick="nav('${x.id}')" style="position:relative;display:flex;flex-direction:column;align-items:center;gap:3px;background:none;border:none;cursor:pointer;padding:4px 10px;color:${S.tab===x.id?'#f97316':'#71717a'}">
+      <span style="font-size:21px;line-height:1">${x.i}</span>
+      <span style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em">${x.l}</span>
+      ${x.id==='profilo'&&attesa?`<span class="pulse" style="position:absolute;top:0;right:4px;width:8px;height:8px;background:#f97316;border-radius:50%"></span>`:''}
+    </button>`).join('')}
+  </nav>`;
+}
+function nav(t){ S.tab=t; S.selPrj=null; render(); }
+
+// ══════════════════════════════════════════════════════════════
+//  ⑤ HOME
+// ══════════════════════════════════════════════════════════════
+function renderHome(){
+  const scarsi=S.materials.filter(m=>m.allarme&&m.qta<=2);
+  const tl=S.timeline.slice(0,12);
+  return `<div class="su" style="padding:1.5rem;display:flex;flex-direction:column;gap:1.75rem">
+    <header style="display:flex;justify-content:space-between;align-items:center">
+      <div style="display:flex;align-items:center;gap:.75rem">
+        <img src="icons/icon-192.png" style="width:2.75rem;height:2.75rem;border-radius:.9rem;object-fit:cover;border:1px solid #27272a">
+        <div>
+          <h1 class="fd" style="font-size:1.15rem;font-weight:900;text-transform:uppercase;font-style:italic;line-height:1">RIG<span style="color:#f97316">OPS</span></h1>
+          <p style="font-size:.6rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#52525b">${esc(S.azienda?.nome||'')}</p>
+        </div>
+      </div>
+      <div style="display:flex;gap:.5rem;align-items:center">
+        ${pillolaMeteo()}
+        <button onclick="S.showSquadra=true;render()" style="background:#18181b;padding:.7rem;border-radius:1rem;border:1px solid #27272a;color:#a1a1aa;cursor:pointer;display:flex">${I.users}</button>
+      </div>
+    </header>
+
+    <section>
+      <p style="${sSot};margin-bottom:.75rem">Focus di Giornata</p>
+      <div style="${sCard};padding:1.5rem">
+        <textarea oninput="db.set('briefing',this.value);S.briefing=this.value" placeholder="Qual è la priorità di oggi?"
+          style="width:100%;background:transparent;border:none;font-size:.9rem;line-height:1.6;color:#d4d4d8;font-style:italic;resize:none;min-height:70px">${esc(S.briefing)}</textarea>
+      </div>
+    </section>
+
+    ${scarsi.length?`<section>
+      <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.75rem">
+        <div class="pulse" style="width:8px;height:8px;border-radius:50%;background:#ef4444"></div>
+        <p style="${sSot}">Da Comprare</p>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
+        ${scarsi.map(m=>`<div style="background:#18181b;border:1px solid rgba(239,68,68,.25);padding:1rem;border-radius:1rem;display:flex;align-items:center;justify-content:space-between;gap:.5rem">
+          <span style="font-size:.75rem;font-weight:500;line-height:1.2">${esc(m.nome)}</span>
+          <span style="background:rgba(239,68,68,.2);color:#ef4444;font-size:.65rem;padding:.25rem .6rem;border-radius:9999px;font-weight:900;flex-shrink:0">${m.qta}pz</span>
+        </div>`).join('')}
+      </div>
+    </section>`:''}
+
+    <section>
+      <p style="${sSot};margin-bottom:.75rem">Timeline Squadra</p>
+      ${tl.length===0?`<p style="text-align:center;color:#3f3f46;font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.15em;padding:2rem 0">Ancora nessun evento</p>`
+      :tl.map(e=>`<div style="display:flex;gap:1rem;align-items:flex-start;padding-bottom:1rem;margin-bottom:1rem;border-bottom:1px solid #18181b">
+        <div style="width:2.25rem;height:2.25rem;border-radius:50%;background:#18181b;border:1px solid ${e.tipo==='WARNING'?'#ef4444':e.tipo==='SUCCESS'?'#22c55e':'#f97316'};display:flex;align-items:center;justify-content:center;font-size:.65rem;font-weight:900;flex-shrink:0">${iniz(e.userName)}</div>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;justify-content:space-between;gap:.5rem">
+            <span style="font-size:.75rem;font-weight:900">${esc(e.userName)}</span>
+            <span style="font-size:.65rem;color:#52525b;font-weight:700;flex-shrink:0">${fmtTime(e.timestamp)}</span>
+          </div>
+          <p style="font-size:.72rem;color:#71717a;line-height:1.45;margin-top:.2rem">${esc(e.details)}</p>
+        </div>
+      </div>`).join('')}
+    </section>
+  </div>`;
+}
+
+function renderSquadraModal(){
+  const attivi=S.membri.filter(m=>m.stato==='attivo');
+  const attesa=S.membri.filter(m=>m.stato==='attesa');
+  return `<div onclick="S.showSquadra=false;render()" style="position:fixed;inset:0;background:rgba(0,0,0,.85);backdrop-filter:blur(8px);z-index:70;display:flex;align-items:center;justify-content:center;padding:1.5rem">
+    <div onclick="event.stopPropagation()" class="su" style="width:100%;max-width:26rem;max-height:80dvh;overflow-y:auto;background:#18181b;border-radius:1.75rem;border:1px solid #27272a;padding:1.5rem">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem">
+        <h2 class="fd" style="font-size:1.25rem;font-weight:900;text-transform:uppercase;font-style:italic">La Squadra</h2>
+        <button onclick="S.showSquadra=false;render()" style="color:#71717a;background:none;border:none;cursor:pointer;font-size:.8rem;font-weight:700">Chiudi</button>
+      </div>
+      ${attesa.length?`<p style="${sSot};margin-bottom:.6rem">In attesa di approvazione</p>
+        <div style="display:flex;flex-direction:column;gap:.6rem;margin-bottom:1.25rem">${attesa.map(m=>cardMembro(m,true)).join('')}</div>`:''}
+      <p style="${sSot};margin-bottom:.6rem">Nella squadra · ${attivi.length}</p>
+      <div style="display:flex;flex-direction:column;gap:.6rem">${attivi.map(m=>cardMembro(m,false)).join('')}</div>
+    </div>
+  </div>`;
+}
+function cardMembro(m,inAttesa){
+  return `<div style="background:rgba(39,39,42,.5);padding:.9rem;border-radius:1rem;border:1px solid ${inAttesa?'rgba(249,115,22,.3)':'rgba(63,63,70,.5)'}">
+    <div style="display:flex;align-items:center;gap:.9rem">
+      <div style="width:2.5rem;height:2.5rem;border-radius:50%;overflow:hidden;background:#27272a;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-weight:900;color:#f97316;font-size:.8rem">
+        ${m.photo64?`<img src="${m.photo64}" style="width:100%;height:100%;object-fit:cover">`:iniz(m.nome+' '+m.cognome)}
+      </div>
+      <div style="flex:1;min-width:0">
+        <h3 style="font-weight:700;font-size:.85rem">${esc(m.nome)} ${esc(m.cognome)}</h3>
+        <p style="font-size:.62rem;color:#52525b;font-weight:700;text-transform:uppercase;letter-spacing:.08em">${esc(m.ruolo||'')}${m.tipo==='capo'?' · Titolare':''}</p>
+      </div>
+    </div>
+    ${inAttesa?`<div style="display:flex;gap:.4rem;margin-top:.75rem">
+      <button onclick="decidi('${m.id}','attivo')" style="flex:1;background:#f97316;color:#09090b;border:none;border-radius:.75rem;padding:.6rem;font-size:.65rem;font-weight:900;text-transform:uppercase;cursor:pointer">Approva</button>
+      <button onclick="decidi('${m.id}','rifiutato')" style="flex:1;background:#27272a;color:#a1a1aa;border:none;border-radius:.75rem;padding:.6rem;font-size:.65rem;font-weight:900;text-transform:uppercase;cursor:pointer">Rifiuta</button>
+      <button onclick="S.showSquadra=false;render();avviso('Lasciato in attesa')" style="flex:1;background:#27272a;color:#71717a;border:none;border-radius:.75rem;padding:.6rem;font-size:.65rem;font-weight:900;text-transform:uppercase;cursor:pointer">Attendi</button>
+    </div>`:''}
+  </div>`;
+}
+function decidi(id,stato){
+  const m=S.membri.find(x=>x.id===id); if(!m) return;
+  if(stato==='rifiutato'){ save('membri',S.membri.filter(x=>x.id!==id)); }
+  else { save('membri',S.membri.map(x=>x.id===id?{...x,stato}:x)); }
+  // Resta scritto chi ha deciso: serve il giorno che entra qualcuno che non doveva entrare.
+  addTimeline(`Ha ${stato==='attivo'?'approvato':'rifiutato'} l'ingresso di ${m.nome} ${m.cognome}`, stato==='attivo'?'SUCCESS':'WARNING');
+  render(); avviso(stato==='attivo'?'Operatore approvato':'Richiesta rifiutata');
+}
+
+// ══════════════════════════════════════════════════════════════
+//  ⑥ MAGAZZINO
+// ══════════════════════════════════════════════════════════════
+function renderMagazzino(){
+  const f=S.materials.filter(m=>!S.matSearch||m.nome.toLowerCase().includes(S.matSearch.toLowerCase()));
+  const max=Math.max(20,...S.materials.map(m=>m.qta||0));
+  return `<div class="su" style="padding:1.5rem;display:flex;flex-direction:column;gap:1.25rem">
+    <header><h1 class="fd" style="${sTit}">Magazzino</h1><p style="${sSot}">Scorte e materiali</p></header>
+
+    ${S.showManageSugg?`<div style="background:rgba(24,24,27,.6);border:1px solid #27272a;border-radius:1.25rem;padding:1rem;display:flex;flex-direction:column;gap:.75rem">
+      <p style="${sSot}">Suggerimenti rapidi</p>
+      <div style="display:flex;flex-wrap:wrap;gap:.4rem">
+        ${S.sugg.map((s,i)=>`<span style="display:flex;align-items:center;gap:.3rem;background:#27272a;padding:.3rem .7rem;border-radius:9999px;font-size:.68rem;font-weight:700;color:#d4d4d8">${esc(s)}<button onclick="rmSugg(${i})" style="background:none;border:none;color:#52525b;cursor:pointer;font-size:.9rem;padding:0">×</button></span>`).join('')}
+      </div>
+      <input placeholder="Aggiungi + Invio" style="background:#27272a;border:none;border-radius:.75rem;font-size:.75rem;padding:.6rem 1rem;color:white"
+        onkeydown="if(event.key==='Enter'&&this.value){addSugg(this.value);this.value=''}">
+    </div>`:''}
+
+    <div style="position:relative">
+      <div style="display:flex;gap:.5rem;background:#18181b;padding:.5rem;border-radius:1rem;border:1px solid #27272a;align-items:center">
+        <input id="mat-in" placeholder="Nuovo materiale..." value="${esc(S.newMat)}" oninput="S.newMat=this.value;updSugg()" onfocus="updSugg()" onblur="setTimeout(hideSugg,200)"
+          style="flex:1;background:transparent;border:none;font-size:.9rem;padding:0 .5rem;color:white"
+          onkeydown="if(event.key==='Enter')addMat()">
+        <button onclick="S.showManageSugg=!S.showManageSugg;render()" style="width:2.1rem;height:2.1rem;border-radius:.6rem;border:1px solid #27272a;background:${S.showManageSugg?'#f97316':'#18181b'};color:${S.showManageSugg?'#09090b':'#71717a'};cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">${I.search}</button>
+        <button onclick="addMat()" style="background:#f97316;color:#09090b;padding:.7rem;border-radius:.7rem;border:none;cursor:pointer;display:flex;flex-shrink:0">${I.plus}</button>
+      </div>
+      <div id="sugg-box" style="display:none;position:absolute;z-index:20;left:0;right:0;top:calc(100% + .5rem);background:#18181b;border:1px solid #27272a;border-radius:1rem;overflow:hidden;max-height:12rem;overflow-y:auto"></div>
+    </div>
+
+    <div style="position:relative">
+      <span style="position:absolute;left:1rem;top:50%;transform:translateY(-50%);color:#52525b;pointer-events:none">${I.search}</span>
+      <input value="${esc(S.matSearch)}" oninput="S.matSearch=this.value;render()" placeholder="Cerca materiali..."
+        style="width:100%;background:rgba(24,24,27,.5);border:1px solid #27272a;border-radius:1rem;padding:.75rem 1rem .75rem 3rem;font-size:.85rem;color:white">
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:.9rem">
+      ${f.length===0?`<p style="text-align:center;color:#3f3f46;font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.15em;padding:2.5rem 0">${S.materials.length===0?'Magazzino vuoto':'Nessun risultato'}</p>`:''}
+      ${f.map(m=>{
+        const basso=m.allarme&&m.qta<=2;
+        // La barra si misura sul materiale piu' numeroso, non su un 200 fisso.
+        const pct=Math.min(100,(m.qta/max)*100);
+        return `<div style="${sCard};border-color:${basso?'rgba(249,115,22,.35)':'#27272a'}">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1rem;gap:.5rem">
+            <div style="display:flex;align-items:center;gap:.75rem;min-width:0">
+              <div style="background:#27272a;padding:.5rem;border-radius:.7rem;color:#a1a1aa;display:flex;flex-shrink:0">${I.pkg}</div>
+              <div style="min-width:0">
+                <h3 style="font-weight:700;color:white;line-height:1.2;font-size:.9rem">${esc(m.nome)}</h3>
+                <p style="font-size:.62rem;text-transform:uppercase;color:#52525b;margin-top:.15rem">Agg: ${fmtData(m.agg)}</p>
+              </div>
+            </div>
+            <div style="display:flex;gap:.4rem;flex-shrink:0">
+              <button onclick="allarme('${m.id}')" style="padding:.5rem;border-radius:.7rem;border:none;cursor:pointer;display:flex;background:${m.allarme?'rgba(249,115,22,.12)':'#27272a'};color:${m.allarme?'#f97316':'#52525b'}">${m.allarme?I.bell:I.belloff}</button>
+              <button onclick="delMat('${m.id}')" style="padding:.5rem;border-radius:.7rem;border:none;cursor:pointer;display:flex;background:#27272a;color:#52525b">${I.trash}</button>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;background:rgba(9,9,11,.6);padding:.4rem;border-radius:1rem;border:1px solid rgba(39,39,42,.6)">
+            <button onclick="qta('${m.id}',-1)" style="padding:.5rem;color:#71717a;background:none;border:none;cursor:pointer;display:flex">${I.minus}</button>
+            <span style="width:2.75rem;text-align:center;font-size:1.2rem;font-weight:900;color:#f97316">${m.qta}</span>
+            <button onclick="qta('${m.id}',1)" style="padding:.5rem;color:#71717a;background:none;border:none;cursor:pointer;display:flex">${I.plus}</button>
+            <div style="flex:1;padding:0 .9rem">
+              <div style="height:6px;background:#27272a;border-radius:9999px;overflow:hidden">
+                <div style="height:100%;width:${pct}%;background:${basso?'#ef4444':'#52525b'};border-radius:9999px;transition:width .4s"></div>
+              </div>
+            </div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
+}
+function updSugg(){
+  const el=document.getElementById('sugg-box'); if(!el) return;
+  const v=document.getElementById('mat-in')?.value||''; S.newMat=v;
+  const m=S.sugg.filter(s=>v&&s.toLowerCase().includes(v.toLowerCase())&&s.toLowerCase()!==v.toLowerCase());
+  if(!v||!m.length){el.style.display='none';return;}
+  el.style.display='block';
+  el.innerHTML=m.map(s=>`<button type="button" onclick="pickSugg(${JSON.stringify(s).replace(/"/g,'&quot;')})" style="width:100%;text-align:left;padding:.75rem 1rem;font-size:.75rem;font-weight:700;color:#a1a1aa;background:none;border:none;border-bottom:1px solid #27272a;cursor:pointer">${esc(s)}</button>`).join('');
+}
+const hideSugg=()=>{const el=document.getElementById('sugg-box');if(el)el.style.display='none';};
+function pickSugg(v){ S.newMat=v; const i=document.getElementById('mat-in'); if(i)i.value=v; hideSugg(); }
+function addSugg(v){ if(!v||S.sugg.includes(v))return; save('sugg',[...S.sugg,v]); render(); }
+function rmSugg(i){ save('sugg',S.sugg.filter((_,j)=>j!==i)); render(); }
+function addMat(){
+  const nome=(document.getElementById('mat-in')?.value||S.newMat).trim();
+  if(!nome) return avviso('Scrivi il nome del materiale','ko');
+  save('materials',[...S.materials,{id:db.id(),nome,qta:0,allarme:false,agg:new Date().toISOString()}]);
+  S.newMat=''; render();
+}
+function qta(id,d){
+  save('materials',S.materials.map(m=>{
+    if(m.id!==id) return m;
+    const q=Math.max(0,m.qta+d);
+    if(q!==m.qta) addTimeline(`${d>0?'Aggiunto':'Prelevato'} ${Math.abs(d)} pz di ${m.nome} · totale ${q}`, d>0?'INFO':'WARNING');
+    return {...m,qta:q,agg:new Date().toISOString()};
+  }));
+  render();
+}
+function allarme(id){ save('materials',S.materials.map(m=>m.id===id?{...m,allarme:!m.allarme}:m)); render(); }
+function delMat(id){ if(!confirm('Eliminare questo materiale?'))return; save('materials',S.materials.filter(m=>m.id!==id)); render(); }
+
+// ══════════════════════════════════════════════════════════════
+//  ⑦ CANTIERI
+// ══════════════════════════════════════════════════════════════
+function renderCantieri(){
+  return `<div class="su" style="padding:1.5rem;display:flex;flex-direction:column;gap:1.25rem">
+    <header style="display:flex;justify-content:space-between;align-items:center">
+      <div><h1 class="fd" style="${sTit}">Cantieri</h1><p style="${sSot}">Archivio e gestione lavori</p></div>
+      <button onclick="apriNuovo()" style="background:#f97316;color:#09090b;padding:.9rem;border-radius:1.25rem;border:none;cursor:pointer;display:flex;box-shadow:0 4px 20px rgba(249,115,22,.2)">${I.plus}</button>
+    </header>
+    <div style="display:flex;flex-direction:column;gap:.9rem">
+      ${S.projects.length===0?`<p style="text-align:center;color:#3f3f46;font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.15em;padding:2.5rem 0">Nessun cantiere — premi + per aggiungerne uno</p>`:''}
+      ${S.projects.map(p=>{
+        const fatte=p.fasi.filter(f=>f.fatta).length;
+        return `<div onclick="apriPrj('${p.id}')" style="${sCard};border-radius:1.75rem;padding:1.4rem;cursor:pointer">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:.9rem;gap:.5rem">
+            <div style="flex:1;min-width:0">
+              <h3 style="font-size:1.05rem;font-weight:900;text-transform:uppercase;letter-spacing:-.02em;margin-bottom:.3rem">${esc(p.nome)}</h3>
+              <div style="display:flex;align-items:center;gap:.4rem;color:#71717a;font-size:.72rem">${I.cal}<span>Inizio: ${fmtData(p.inizio)}</span></div>
+            </div>
+            <button onclick="event.stopPropagation();delPrj('${p.id}')" style="padding:.4rem;color:#3f3f46;background:none;border:none;cursor:pointer;display:flex;flex-shrink:0">${I.trash}</button>
+          </div>
+          <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:.5rem">
+            <div style="min-width:0">
+              <div style="display:flex;align-items:center;gap:.35rem;color:#71717a;font-size:.72rem;margin-bottom:.5rem">
+                ${I.map}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.indirizzo||'Senza indirizzo')}</span>
+              </div>
+              <span style="font-size:.62rem;font-weight:700;background:#09090b;border:1px solid #27272a;padding:.25rem .7rem;border-radius:9999px;color:${p.fasi.length?'#a1a1aa':'#3f3f46'}">
+                ${p.fasi.length?`✅ ${fatte}/${p.fasi.length} completate`:'Nessuna fase'}
+              </span>
+            </div>
+            ${p.foto?.length?`<span style="font-size:.62rem;color:#52525b;font-weight:700">📷 ${p.foto.length}</span>`:''}
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
+}
+function apriNuovo(){ S.showNewPrj=true; S.newPrj={name:'',desc:'',addr:'',date:new Date().toISOString().slice(0,10)}; S.newPrjCoords=null; S.addrSugg=[]; render(); }
+function apriPrj(id){ S.selPrj=id; S.prjTab='info'; S.editMilId=null; render(); }
+function delPrj(id){ if(!confirm('Eliminare il cantiere?'))return; save('projects',S.projects.filter(p=>p.id!==id)); render(); }
+
+function renderNewPrjModal(){
+  return `<div onclick="S.showNewPrj=false;render()" style="position:fixed;inset:0;background:rgba(0,0,0,.92);backdrop-filter:blur(4px);z-index:100;overflow-y:auto;padding:1.5rem">
+    <div onclick="event.stopPropagation()" class="su" style="max-width:32rem;margin:0 auto;background:#18181b;border-radius:2rem;border:1px solid #27272a;padding:1.75rem;display:flex;flex-direction:column;gap:1.25rem">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h2 class="fd" style="${sTit}">Nuovo Cantiere</h2>
+        <button onclick="S.showNewPrj=false;render()" style="color:#71717a;background:none;border:none;cursor:pointer;font-weight:700;font-size:.8rem">Chiudi</button>
+      </div>
+      <div><label style="${sLabel}">Nome cantiere</label>
+        <input id="np-name" value="${esc(S.newPrj.name)}" oninput="S.newPrj.name=this.value" placeholder="es. Condominio San Giusto" style="${sInput}"></div>
+      <div style="position:relative">
+        <label style="${sLabel}">Indirizzo</label>
+        <div style="position:relative">
+          <span style="position:absolute;left:1rem;top:50%;transform:translateY(-50%);color:#52525b;pointer-events:none">${I.map}</span>
+          <input id="np-addr" value="${esc(S.newPrj.addr)}" oninput="S.newPrj.addr=this.value;cercaIndirizzo(this.value)" placeholder="Cerca via, piazza..." style="${sInput};padding-left:3rem">
+        </div>
+        ${S.addrSugg.length?`<div style="position:absolute;left:0;right:0;top:calc(100% + .5rem);background:#18181b;border:1px solid #27272a;border-radius:1rem;overflow:hidden;z-index:10;max-height:12rem;overflow-y:auto">
+          ${S.addrSugg.map(s=>`<button onclick="pickAddr(${JSON.stringify(s.display_name).replace(/"/g,'&quot;')},${s.lat},${s.lon})" style="width:100%;text-align:left;padding:.75rem 1rem;font-size:.72rem;color:#a1a1aa;background:none;border:none;border-bottom:1px solid #27272a;cursor:pointer">${esc(s.display_name)}</button>`).join('')}
+        </div>`:''}
+        ${S.newPrjCoords?`<p style="font-size:.65rem;color:#22c55e;font-weight:700;margin-top:.5rem">✅ Coordinate GPS acquisite</p>`:''}
+      </div>
+      <div><label style="${sLabel}">Data inizio</label>
+        <input id="np-date" type="date" value="${S.newPrj.date}" oninput="S.newPrj.date=this.value" style="${sInput}"></div>
+      <div><label style="${sLabel}">Descrizione lavori</label>
+        <textarea id="np-desc" oninput="S.newPrj.desc=this.value" placeholder="Descrivi l'intervento..." style="${sInput};min-height:80px;resize:none">${esc(S.newPrj.desc)}</textarea></div>
+      <button onclick="creaPrj()" style="${sBtn}">Crea cantiere</button>
+    </div>
+  </div>`;
+}
+// Il freno (debounce) che mancava: senza, ogni lettera digitata e' una
+// richiesta al server delle mappe, e dopo poco ti blocca.
+let timerAddr=null;
+function cercaIndirizzo(v){
+  clearTimeout(timerAddr);
+  if(v.length<4){ S.addrSugg=[]; return; }
+  timerAddr=setTimeout(async()=>{
+    try{
+      const r=await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(v)}&limit=5`);
+      S.addrSugg=await r.json();
+    }catch{ S.addrSugg=[]; }
+    render();
+    const i=document.getElementById('np-addr'); if(i){ i.focus(); i.setSelectionRange(i.value.length,i.value.length); }
+  },600);
+}
+function pickAddr(nome,lat,lng){ S.newPrj.addr=nome; S.newPrjCoords={lat:+lat,lng:+lng}; S.addrSugg=[]; render(); }
+function creaPrj(){
+  const nome=(document.getElementById('np-name')?.value||S.newPrj.name).trim();
+  if(!nome) return avviso('Serve il nome del cantiere','ko');
+  save('projects',[{id:db.id(),nome,descrizione:S.newPrj.desc,indirizzo:S.newPrj.addr,inizio:S.newPrj.date,coord:S.newPrjCoords,foto:[],fasi:[],note:[],creato:new Date().toISOString()},...S.projects]);
+  S.showNewPrj=false; addTimeline(`Ha aperto il cantiere ${nome}`,'SUCCESS'); render();
+}
+
+function renderPrjDetail(){
+  const p=S.projects.find(x=>x.id===S.selPrj);
+  if(!p){ S.selPrj=null; render(); return ''; }
+  const tabs=[{id:'info',l:'Cantiere'},{id:'note',l:'Note'},{id:'foto',l:'Foto'}];
+  return `<div class="su" style="height:100dvh;display:flex;flex-direction:column;background:#09090b;overflow:hidden">
+    <header style="padding:1.25rem 1.5rem;border-bottom:1px solid #18181b;display:flex;justify-content:space-between;align-items:center;flex-shrink:0;gap:.5rem">
+      <div style="display:flex;align-items:center;gap:.75rem;min-width:0">
+        <button onclick="S.selPrj=null;render()" style="padding:.4rem;color:#a1a1aa;background:none;border:none;cursor:pointer;display:flex;flex-shrink:0">${I.back}</button>
+        <h2 style="font-size:.95rem;font-weight:900;text-transform:uppercase;letter-spacing:-.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(p.nome)}</h2>
+      </div>
+      ${p.coord?`<a href="https://www.google.com/maps/search/?api=1&query=${p.coord.lat},${p.coord.lng}" target="_blank" rel="noopener" style="background:#18181b;padding:.5rem;border-radius:.75rem;color:#a1a1aa;display:flex;flex-shrink:0">${I.map}</a>`:''}
+    </header>
+    <nav style="display:flex;background:rgba(24,24,27,.3);padding:.4rem 1.5rem;border-bottom:1px solid #18181b;flex-shrink:0">
+      ${tabs.map(t=>`<button onclick="S.prjTab='${t.id}';render()" style="padding:.5rem 1rem;font-size:.68rem;font-weight:700;text-transform:uppercase;border:none;background:none;cursor:pointer;border-bottom:2px solid ${S.prjTab===t.id?'#f97316':'transparent'};color:${S.prjTab===t.id?'#f97316':'#52525b'}">${t.l}</button>`).join('')}
+    </nav>
+    <div style="flex:1;overflow-y:auto;padding:1.5rem">
+      ${S.prjTab==='info'?prjInfo(p):S.prjTab==='note'?prjNote(p):prjFoto(p)}
+    </div>
+  </div>`;
+}
+function prjInfo(p){
+  return `<div style="display:flex;flex-direction:column;gap:1.5rem">
+    <div style="background:rgba(24,24,27,.5);border:1px solid #18181b;padding:1rem;border-radius:1.25rem">
+      <p style="${sSot};color:#3f3f46;margin-bottom:.25rem">Descrizione</p>
+      <p style="font-size:.85rem;color:#d4d4d8;line-height:1.6;font-style:italic">${esc(p.descrizione||'Nessuna descrizione.')}</p>
+    </div>
+    <section>
+      <p style="${sSot};margin-bottom:.75rem">Piano Operativo</p>
+      <div style="display:flex;flex-direction:column;gap:.7rem">
+        ${p.fasi.length===0?`<div style="text-align:center;padding:2.5rem;border:2px dashed #18181b;border-radius:1.5rem;color:#3f3f46;font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.15em">Nessuna fase — aggiungila sotto</div>`:''}
+        ${p.fasi.map(f=>`<div style="display:flex;align-items:center;gap:.9rem;background:#18181b;padding:.9rem;border-radius:1rem;border:1px solid #27272a">
+          <button onclick="toggleFase('${p.id}','${f.id}')" style="width:1.5rem;height:1.5rem;border-radius:50%;border:2px solid ${f.fatta?'#f97316':'#3f3f46'};background:${f.fatta?'#f97316':'transparent'};display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer;color:#09090b">${f.fatta?I.check:''}</button>
+          ${S.editMilId===f.id
+            ? `<input value="${esc(f.testo)}" style="flex:1;background:#27272a;border:none;border-radius:.5rem;padding:.3rem .5rem;font-size:.85rem;color:white" onblur="salvaFase('${p.id}','${f.id}',this.value)" onkeydown="if(event.key==='Enter')salvaFase('${p.id}','${f.id}',this.value)">`
+            : `<span onclick="S.editMilId='${f.id}';render()" style="flex:1;font-size:.85rem;${f.fatta?'text-decoration:line-through;color:#52525b':'color:white'};cursor:text">${esc(f.testo)}</span>`}
+          <button onclick="delFase('${p.id}','${f.id}')" style="padding:.2rem;color:#3f3f46;background:none;border:none;cursor:pointer;display:flex;flex-shrink:0">${I.trash}</button>
+        </div>`).join('')}
+        <input placeholder="Aggiungi fase + Invio" style="width:100%;background:#18181b;border:1px solid #27272a;border-radius:.75rem;padding:.75rem 1rem;font-size:.75rem;color:white"
+          onkeydown="if(event.key==='Enter'&&this.value){addFase('${p.id}',this.value);this.value=''}">
+      </div>
+    </section>
+  </div>`;
+}
+function prjNote(p){
+  const n=p.note||[];
+  return `<div style="display:flex;flex-direction:column;gap:1rem;min-height:calc(100dvh - 240px)">
+    ${n.length===0?`<div style="text-align:center;padding:2.5rem;color:#3f3f46;display:flex;flex-direction:column;align-items:center;gap:1rem"><span style="font-size:2.5rem">📋</span><p style="${sSot}">Note del cantiere</p></div>`:''}
+    ${n.map(m=>`<div style="max-width:88%;align-self:flex-end;display:flex;flex-direction:column;align-items:flex-end">
+      <div style="background:#f97316;color:#09090b;padding:.9rem 1rem;border-radius:1.25rem;border-top-right-radius:.25rem;font-size:.85rem;line-height:1.5;font-weight:500">${esc(m.testo)}</div>
+      <span style="font-size:.62rem;color:#52525b;font-weight:700;margin-top:.3rem">${esc(m.autore)} · ${fmtTime(m.quando)}</span>
+    </div>`).join('')}
+    <div style="position:sticky;bottom:0;padding-top:1rem;background:#09090b">
+      <div style="display:flex;align-items:flex-end;gap:.5rem;background:#18181b;border:1px solid #27272a;border-radius:1.75rem;padding:.25rem">
+        <textarea id="pn-in" rows="1" placeholder="Scrivi una nota..." style="flex:1;background:transparent;border:none;font-size:.85rem;padding:.5rem 1rem;min-height:40px;max-height:7rem;resize:none;color:white"
+          onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();addNotaPrj('${p.id}')}"></textarea>
+        <button onclick="addNotaPrj('${p.id}')" style="background:#f97316;color:#09090b;padding:.7rem;border-radius:1.5rem;border:none;cursor:pointer;display:flex;margin:.25rem">${I.send}</button>
+      </div>
+    </div>
+  </div>`;
+}
+function prjFoto(p){
+  const f=p.foto||[];
+  const peso=f.reduce((a,x)=>a+pesoKB(x),0);
+  return `<div style="display:flex;flex-direction:column;gap:1rem">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <p style="${sSot}">Foto del cantiere</p>
+        <p style="font-size:.6rem;font-weight:700;color:#3f3f46">${f.length} foto · ${peso} KB · tocca per ingrandire</p>
+      </div>
+      <label style="background:#f97316;color:#09090b;padding:.7rem;border-radius:1rem;cursor:pointer;display:flex">
+        ${I.plus}<input type="file" multiple accept="image/*" style="display:none" onchange="addFoto('${p.id}',this)">
+      </label>
+    </div>
+    ${f.length===0?`<div style="text-align:center;padding:3rem;color:#3f3f46;display:flex;flex-direction:column;align-items:center;gap:1rem">${I.img}<p style="${sSot}">Nessuna foto</p></div>`
+    :`<div style="display:grid;grid-template-columns:1fr 1fr;gap:.9rem">
+      ${f.map((img,i)=>`<div style="position:relative;aspect-ratio:1;border-radius:1.25rem;overflow:hidden;border:1px solid #27272a">
+        <img src="${img}" onclick="apriFotoPrj('${p.id}',${i})" style="width:100%;height:100%;object-fit:cover;cursor:zoom-in">
+        <button onclick="event.stopPropagation();delFoto('${p.id}',${i})" style="position:absolute;top:.5rem;right:.5rem;background:rgba(0,0,0,.65);padding:.45rem;border-radius:.7rem;border:none;cursor:pointer;color:white;display:flex">${I.trash}</button>
+      </div>`).join('')}
+    </div>`}
+  </div>`;
+}
+function mapPrj(pid,fn){ save('projects',S.projects.map(p=>p.id===pid?fn(p):p)); }
+function toggleFase(pid,fid){
+  const p=S.projects.find(x=>x.id===pid);
+  const f=p.fasi.find(x=>x.id===fid);
+  if(f&&!f.fatta) addTimeline(`Completata fase "${f.testo}" su ${p.nome}`,'SUCCESS');
+  mapPrj(pid,p=>({...p,fasi:p.fasi.map(x=>x.id===fid?{...x,fatta:!x.fatta}:x)}));
+  render();
+}
+function addFase(pid,testo){ mapPrj(pid,p=>({...p,fasi:[...p.fasi,{id:db.id(),testo,fatta:false}]})); render(); }
+function salvaFase(pid,fid,testo){ S.editMilId=null; mapPrj(pid,p=>({...p,fasi:p.fasi.map(x=>x.id===fid?{...x,testo}:x)})); render(); }
+function delFase(pid,fid){ if(!confirm('Eliminare questa fase?'))return; mapPrj(pid,p=>({...p,fasi:p.fasi.filter(x=>x.id!==fid)})); render(); }
+function addNotaPrj(pid){
+  const el=document.getElementById('pn-in'); if(!el||!el.value.trim())return;
+  const autore=`${S.account.nome} ${S.account.cognome}`.trim();
+  mapPrj(pid,p=>({...p,note:[...(p.note||[]),{id:db.id(),testo:el.value.trim(),autore,quando:new Date().toISOString()}]}));
+  render();
+}
+async function addFoto(pid,input){
+  const files=Array.from(input.files||[]); if(!files.length) return;
+  avviso(`Comprimo ${files.length} foto...`);
+  const out=[];
+  for(const f of files){ const c=await comprimi(f); if(c) out.push(c); }
+  mapPrj(pid,p=>({...p,foto:[...(p.foto||[]),...out]}));
+  render();
+  avviso(`${out.length} foto aggiunte · ${out.reduce((a,x)=>a+pesoKB(x),0)} KB in tutto`);
+}
+function delFoto(pid,i){ if(!confirm('Eliminare questa foto?'))return; mapPrj(pid,p=>({...p,foto:p.foto.filter((_,j)=>j!==i)})); render(); }
+
+// ══════════════════════════════════════════════════════════════
+//  ⑧ TACCUINO
+// ══════════════════════════════════════════════════════════════
+function renderTaccuino(){
+  return `<div class="su" style="padding:1.5rem;display:flex;flex-direction:column;gap:1rem;height:calc(100dvh - 5.5rem)">
+    <header><h1 class="fd" style="${sTit}">Taccuino</h1><p style="${sSot}">Note personali — solo tue</p></header>
+    <div style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:1rem;min-height:0">
+      ${S.notes.length===0?`<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#27272a;gap:1rem">${I.book}<p style="${sSot};text-align:center">Scrivi la prima nota</p></div>`:''}
+      ${S.notes.map(n=>`<div style="display:flex;flex-direction:column;align-items:flex-end">
+        <div style="background:#f97316;color:#09090b;padding:.9rem 1rem;border-radius:1.25rem;border-top-right-radius:.25rem;font-size:.85rem;line-height:1.5;font-weight:500;max-width:92%;position:relative">
+          ${n.imgs?.length?`<div style="display:grid;grid-template-columns:${n.imgs.length>1?'1fr 1fr':'1fr'};gap:.4rem;margin-bottom:.5rem">${n.imgs.map((im,k)=>`<img src="${im}" onclick="apriFotoNota('${n.id}',${k})" style="border-radius:.7rem;width:100%;aspect-ratio:1;object-fit:cover;cursor:zoom-in">`).join('')}</div>`:''}
+          ${esc(n.testo)}
+          <button onclick="delNota('${n.id}')" style="position:absolute;top:.4rem;right:.4rem;background:rgba(0,0,0,.2);border:none;cursor:pointer;color:rgba(0,0,0,.5);border-radius:.4rem;padding:.15rem;display:flex">${I.trash.replace(/18/g,'13')}</button>
+        </div>
+        <span style="font-size:.62rem;color:#52525b;font-weight:700;margin-top:.3rem">${fmtDataOra(n.quando)}</span>
+      </div>`).join('')}
+    </div>
+    <div style="display:flex;align-items:flex-end;gap:.5rem;background:#18181b;border:1px solid #27272a;border-radius:1.75rem;padding:.25rem;flex-shrink:0">
+      <label style="padding:.7rem;color:#71717a;cursor:pointer;display:flex;position:relative">
+        ${I.img}<input type="file" multiple accept="image/*" style="display:none" onchange="notaFoto(this)">
+        ${S.noteImgs.length?`<span style="position:absolute;top:.3rem;right:.3rem;width:1rem;height:1rem;background:#f97316;color:#09090b;font-size:.58rem;font-weight:900;border-radius:50%;display:flex;align-items:center;justify-content:center">${S.noteImgs.length}</span>`:''}
+      </label>
+      <textarea id="nota-in" rows="1" placeholder="Scrivi una nota..." style="flex:1;background:transparent;border:none;font-size:.85rem;padding:.5rem 0;min-height:40px;max-height:7rem;resize:none;color:white"
+        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();addNota()}"></textarea>
+      <button onclick="addNota()" style="background:#f97316;color:#09090b;padding:.7rem;border-radius:1.5rem;border:none;cursor:pointer;display:flex;margin:.25rem">${I.send}</button>
+    </div>
+  </div>`;
+}
+async function notaFoto(input){
+  const files=Array.from(input.files||[]).slice(0,6); if(!files.length) return;
+  for(const f of files){ const c=await comprimi(f,1920,.82); if(c) S.noteImgs.push(c); }
+  render();
+}
+function addNota(){
+  const el=document.getElementById('nota-in');
+  const testo=(el?.value||'').trim();
+  if(!testo&&!S.noteImgs.length) return;
+  save('notes',[...S.notes,{id:db.id(),testo,imgs:[...S.noteImgs],quando:new Date().toISOString()}]);
+  S.noteImgs=[]; render();
+}
+function delNota(id){ save('notes',S.notes.filter(n=>n.id!==id)); render(); }
+
+// ══════════════════════════════════════════════════════════════
+//  ⑨ PROFILO — account, azienda, dispositivi, backup
+// ══════════════════════════════════════════════════════════════
+function renderProfilo(){
+  const p=S.account;
+  const miei=S.dispositivi.filter(d=>d.accountId===p.id);
+  const attesa=S.membri.filter(m=>m.stato==='attesa');
+  return `<div class="su" style="padding:1.5rem;display:flex;flex-direction:column;gap:1.75rem">
+    <header style="display:flex;flex-direction:column;align-items:center;padding-top:.5rem">
+      <label style="position:relative;cursor:pointer">
+        <input type="file" accept="image/*" style="display:none" onchange="fotoProfilo(this)">
+        <div style="width:7rem;height:7rem;border-radius:2.25rem;overflow:hidden;border:4px solid #18181b;background:#27272a;display:flex;align-items:center;justify-content:center">
+          ${p.photo64?`<img src="${p.photo64}" style="width:100%;height:100%;object-fit:cover">`:`<span style="color:#3f3f46">${I.user}</span>`}
+        </div>
+        <div style="position:absolute;bottom:-4px;right:-4px;background:#f97316;padding:.45rem;border-radius:.9rem;border:4px solid #09090b;color:#09090b;display:flex">${I.cam.replace(/20/g,'13')}</div>
+      </label>
+      <h2 class="fd" style="font-size:1.4rem;font-weight:900;font-style:italic;text-transform:uppercase;margin-top:1.25rem">${esc(p.nome)} <span style="color:#f97316">${esc(p.cognome)}</span></h2>
+      <p style="${sSot}">${esc(p.ruolo||'')}${p.tipo==='capo'?' · Titolare':''}</p>
+    </header>
+
+    <!-- AZIENDA -->
+    <section style="${sCard};border-color:rgba(249,115,22,.25);background:rgba(249,115,22,.05)">
+      <p style="${sSot};margin-bottom:.75rem">La tua azienda</p>
+      <h3 class="fd" style="font-size:1.1rem;font-weight:900;text-transform:uppercase;font-style:italic;margin-bottom:1rem">${esc(S.azienda?.nome||'')}</h3>
+      <p style="${sLabel}">Codice da dare agli operai</p>
+      <div style="display:flex;gap:.5rem;align-items:center">
+        <div style="flex:1;background:#09090b;border:1px dashed rgba(249,115,22,.4);border-radius:1rem;padding:.9rem;text-align:center">
+          <span class="fd" style="font-size:1.3rem;font-weight:900;letter-spacing:.2em;color:#f97316">${esc(S.azienda?.codice||'')}</span>
+        </div>
+        ${p.tipo==='capo'?`<button onclick="nuovoCodice()" style="background:#27272a;color:#a1a1aa;border:none;border-radius:1rem;padding:.9rem;font-size:.65rem;font-weight:900;text-transform:uppercase;cursor:pointer">Cambia</button>`:''}
+      </div>
+      ${p.tipo==='capo'?`<div style="margin-top:1.25rem">
+        <p style="${sLabel}">Chi può approvare i nuovi operatori</p>
+        <div style="display:flex;gap:.5rem">
+          <button onclick="setApprova(true)" style="flex:1;background:${S.azienda.approvaTutti?'#f97316':'#27272a'};color:${S.azienda.approvaTutti?'#09090b':'#a1a1aa'};border:none;border-radius:.9rem;padding:.75rem;font-size:.65rem;font-weight:900;text-transform:uppercase;cursor:pointer">Tutta la squadra</button>
+          <button onclick="setApprova(false)" style="flex:1;background:${!S.azienda.approvaTutti?'#f97316':'#27272a'};color:${!S.azienda.approvaTutti?'#09090b':'#a1a1aa'};border:none;border-radius:.9rem;padding:.75rem;font-size:.65rem;font-weight:900;text-transform:uppercase;cursor:pointer">Solo io</button>
+        </div>
+      </div>`:''}
+      ${attesa.length?`<button onclick="S.showSquadra=true;render()" style="${sBtn};margin-top:1.25rem">⚠️ ${attesa.length} richiesta${attesa.length>1?'e':''} in attesa</button>`:''}
+    </section>
+
+    <!-- DISPOSITIVI -->
+    <section>
+      <p style="${sSot};margin-bottom:.75rem">I tuoi dispositivi · ${miei.length}/2</p>
+      <div style="display:flex;flex-direction:column;gap:.7rem">
+        ${miei.map(d=>{
+          const qui=d.impronta===impronta();
+          return `<div style="${sCard};display:flex;align-items:center;gap:1rem">
+            <div style="background:#27272a;padding:.7rem;border-radius:.9rem;color:${qui?'#f97316':'#71717a'};display:flex">${d.tipo==='telefono'?I.phone:I.pc}</div>
+            <div style="flex:1;min-width:0">
+              <p style="font-weight:900;font-size:.85rem">${esc(d.nome)} ${qui?`<span style="font-size:.6rem;color:#22c55e;font-weight:700">· questo</span>`:''}</p>
+              <p style="font-size:.62rem;color:#52525b;font-weight:700;margin-top:.1rem">Ultimo accesso: ${fmtDataOra(d.ultimo)}</p>
+            </div>
+            ${!qui?`<button onclick="scollega('${d.id}')" style="background:#27272a;color:#71717a;border:none;border-radius:.7rem;padding:.5rem .75rem;font-size:.62rem;font-weight:900;text-transform:uppercase;cursor:pointer">Scollega</button>`:''}
+          </div>`;
+        }).join('')}
+        ${miei.length<2?`<div style="border:2px dashed #27272a;border-radius:1.25rem;padding:1.25rem;text-align:center;color:#3f3f46;font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em">Posto libero per un altro dispositivo</div>`:''}
+      </div>
+      <button onclick="provaTerzo()" style="${sBtn2};margin-top:.7rem;padding:.9rem;font-size:.62rem">▶ Anteprima: accesso da un terzo dispositivo</button>
+    </section>
+
+    <!-- DATI PERSONALI -->
+    <section style="display:flex;flex-direction:column;gap:1rem">
+      <p style="${sSot}">I tuoi dati</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
+        <div><label style="${sLabel}">Nome</label><input id="pf-nome" value="${esc(p.nome)}" style="${sInput};background:#18181b"></div>
+        <div><label style="${sLabel}">Cognome</label><input id="pf-cog" value="${esc(p.cognome)}" style="${sInput};background:#18181b"></div>
+      </div>
+      <div><label style="${sLabel}">Ruolo in squadra</label><input id="pf-ruolo" value="${esc(p.ruolo||'')}" style="${sInput};background:#18181b"></div>
+      <div><label style="${sLabel}">Qualifiche e patentini</label>
+        <textarea id="pf-qual" style="${sInput};background:#18181b;min-height:90px;resize:none" placeholder="es. IRATA Level 3, Primo Soccorso, scadenza 02/2029">${esc(p.qualifiche||'')}</textarea></div>
+      <button onclick="salvaProfilo()" id="btn-pf" style="${sBtn}">Salva profilo</button>
+    </section>
+
+    <!-- BACKUP -->
+    <section style="${sCard}">
+      <p style="${sSot};margin-bottom:.4rem">Backup</p>
+      <p style="font-size:.7rem;color:#71717a;line-height:1.5;margin-bottom:1rem">
+        Finché i dati stanno in questo browser, un backup è l'unica rete di sicurezza.
+        Spazio usato: <b style="color:#f97316">${spazioUsato()} MB</b>
+      </p>
+      <div style="display:flex;gap:.5rem">
+        <button onclick="esporta()" style="${sBtn2};display:flex;align-items:center;justify-content:center;gap:.5rem">${I.down} Esporta</button>
+        <label style="${sBtn2};display:flex;align-items:center;justify-content:center;gap:.5rem;cursor:pointer">${I.up} Importa
+          <input type="file" accept="application/json" style="display:none" onchange="importa(this)"></label>
+      </div>
+    </section>
+
+    <section style="${sCard};background:rgba(24,24,27,.5);display:flex;flex-direction:column;align-items:center;gap:.9rem">
+      <p style="${sSot};color:#3f3f46;text-align:center">Anteprima locale · nessun server collegato</p>
+      <p style="font-size:.62rem;color:#27272a;text-align:center;line-height:1.5">I dati restano in questo browser.<br>Il collegamento fra i telefoni della squadra è il passo successivo.</p>
+      <div style="display:flex;gap:.5rem;width:100%;margin-top:.25rem">
+        <button onclick="esci()" style="${sBtn2};padding:.8rem;font-size:.62rem">Esci</button>
+        <button onclick="cancellaTutto()" style="${sBtn2};padding:.8rem;font-size:.62rem;color:#ef4444;border-color:rgba(239,68,68,.3)">Cancella tutto</button>
+      </div>
+    </section>
+  </div>`;
+}
+async function fotoProfilo(input){
+  const f=input.files?.[0]; if(!f) return;
+  const c=await comprimi(f,512,.8); if(!c) return;
+  const a={...S.account,photo64:c}; save('account',a);
+  save('membri',S.membri.map(m=>m.id===a.id?{...m,photo64:c}:m));
+  render();
+}
+function salvaProfilo(){
+  const a={...S.account,nome:val('pf-nome'),cognome:val('pf-cog'),ruolo:val('pf-ruolo'),qualifiche:val('pf-qual')};
+  save('account',a);
+  save('membri',S.membri.map(m=>m.id===a.id?{...m,...a,pwd:undefined}:m));
+  render(); avviso('Profilo salvato');
+}
+function nuovoCodice(){
+  if(!confirm('Generare un nuovo codice? Il vecchio smetterà di funzionare.')) return;
+  save('azienda',{...S.azienda,codice:codiceAzienda()});
+  addTimeline('Ha cambiato il codice azienda','WARNING');
+  render(); avviso('Nuovo codice generato');
+}
+function setApprova(tutti){ save('azienda',{...S.azienda,approvaTutti:tutti}); render(); }
+function scollega(id){
+  if(!confirm('Scollegare questo dispositivo?')) return;
+  save('dispositivi',S.dispositivi.filter(d=>d.id!==id));
+  addTimeline('Ha scollegato un dispositivo','WARNING');
+  render(); avviso('Dispositivo scollegato');
+}
+function provaTerzo(){
+  const miei=S.dispositivi.filter(d=>d.accountId===S.account.id);
+  if(miei.length<2) return avviso('Hai ancora un posto libero: il terzo dispositivo scatta quando ne hai due','ko');
+  S.sostituzione={fase:'scegli',scelto:null,codice:null,tentativi:0}; render();
+}
+function esporta(){
+  const dati={}; for(const k in localStorage){ if(k.startsWith('rig_')) dati[k]=localStorage[k]; }
+  const blob=new Blob([JSON.stringify({app:'RigOps',versione:1,quando:new Date().toISOString(),dati},null,2)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=`rigops-backup-${new Date().toISOString().slice(0,10)}.json`;
+  a.click(); URL.revokeObjectURL(a.href);
+  avviso('Backup scaricato');
+}
+function importa(input){
+  const f=input.files?.[0]; if(!f) return;
+  const r=new FileReader();
+  r.onload=()=>{
+    try{
+      const j=JSON.parse(r.result);
+      if(j.app!=='RigOps') throw 0;
+      if(!confirm('Sostituire tutti i dati attuali con quelli del backup?')) return;
+      for(const k in j.dati) localStorage.setItem(k,j.dati[k]);
+      location.reload();
+    }catch{ avviso('File di backup non valido','ko'); }
+  };
+  r.readAsText(f);
+}
+function cancellaTutto(){
+  if(!confirm('Eliminare TUTTI i dati di RigOps su questo dispositivo? Non si torna indietro.')) return;
+  for(const k of Object.keys(localStorage)) if(k.startsWith('rig_')) localStorage.removeItem(k);
+  location.reload();
+}
+
+// ── AVVIO ──────────────────────────────────────────────────────
+if(S.account && S.account.stato==='attivo') registraDispositivo();
+render();
+meteo();
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
+</script>
+</body>
+</html>
