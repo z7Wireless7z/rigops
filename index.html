@@ -11,7 +11,27 @@
 <script src="https://cdn.tailwindcss.com"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Outfit:wght@700;800;900&display=swap" rel="stylesheet">
 <style>
-  body { font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; }
+  /* I colori dell'app stanno tutti qui dentro: il titolare li cambia da
+     Impostazioni azienda e l'intera app cambia aspetto in un colpo solo. */
+  :root {
+    --bg:      #09090b;   /* sfondo */
+    --sup:     #18181b;   /* riquadri e schede */
+    --bordo:   #27272a;   /* bordi */
+    --testo:   #fafafa;   /* testo principale */
+    --t1:      #a1a1aa;   /* testo secondario */
+    --t2:      #71717a;
+    --t3:      #52525b;
+    --t4:      #3f3f46;   /* testo appena accennato */
+    --acc:     #f97316;   /* colore dell'azienda */
+    --acc-rgb: 249,115,22;
+    --acc-su:  #09090b;   /* testo sopra il colore dell'azienda */
+    /* L'omino della squadra */
+    --casco:   #f97316;
+    --maglia:  #f97316;
+    --pant:    #27272a;
+    --scarpe:  #18181b;
+  }
+  body { font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; background: var(--bg); color: var(--testo); }
   .fd { font-family: 'Outfit', sans-serif; }
   * { box-sizing: border-box; scrollbar-width: none; -ms-overflow-style: none; }
   *::-webkit-scrollbar { display: none; }
@@ -23,7 +43,7 @@
   .pulse { animation: pulse 2s ease-in-out infinite; }
 </style>
 </head>
-<body class="bg-zinc-950 text-zinc-100 overflow-hidden" style="height:100dvh">
+<body class="overflow-hidden" style="height:100dvh;background:var(--bg);color:var(--testo)">
 <div id="app" style="height:100dvh;width:100%"></div>
 <script>
 /* ══════════════════════════════════════════════════════════════
@@ -41,7 +61,7 @@ const db = {
 
 // ── STATO ──────────────────────────────────────────────────────
 const S = {
-  azienda:   db.get('azienda', null),     // {nome, codice, creata}
+  azienda:   db.get('azienda', null),     // {nome, email, codice, tema, omino}
   account:   db.get('account', null),     // utente di questo dispositivo
   membri:    db.get('membri', []),        // squadra (in locale: finta)
   credenziali: db.get('credenziali', {}), // email -> password cifrata (solo per l'anteprima locale)
@@ -57,7 +77,7 @@ const S = {
   showNewPrj:false, showManageSugg:false, showSquadra:false,
   matSearch:'', newMat:'', noteImgs:[], weather:null,
   addrSugg:[], newPrj:{name:'',desc:'',addr:'',date:new Date().toISOString().slice(0,10)}, newPrjCoords:null,
-  reg:{}, sostituzione:null, codiceInviato:null, msg:null, lightbox:null,
+  reg:{}, sostituzione:null, codiceInviato:null, msg:null, lightbox:null, impostazioni:false,
 };
 
 function save(key,val){ S[key]=val; db.set(key,val); }
@@ -84,6 +104,69 @@ const codiceAzienda = () => 'RIG-'+Array.from({length:8},()=>'ABCDEFGHJKLMNPQRST
 const codiceOTP = () => String(Math.floor(100000+Math.random()*900000));
 
 function avviso(testo, tipo='ok'){ S.msg={testo,tipo}; render(); setTimeout(()=>{S.msg=null;render()},3200); }
+
+// ── COLORI DELL'AZIENDA ────────────────────────────────────────
+const TEMA_BASE = { bg:'#09090b', sup:'#18181b', testo:'#fafafa', acc:'#f97316' };
+const OMINO_BASE = { casco:'#f97316', maglia:'#f97316', pant:'#27272a', scarpe:'#18181b' };
+
+const aRGB = h => { const v=h.replace('#',''); return [0,2,4].map(i=>parseInt(v.slice(i,i+2),16)); };
+// Quanto e' chiaro un colore (0 = nero, 1 = bianco): serve per decidere
+// se scriverci sopra in bianco o in nero, e per calcolare bordi e sfumature.
+const luce = h => { const [r,g,b]=aRGB(h).map(x=>{ x/=255; return x<=.03928? x/12.92 : ((x+.055)/1.055)**2.4; }); return .2126*r+.7152*g+.0722*b; };
+const mescola = (a,b,q) => { const A=aRGB(a),B=aRGB(b); return '#'+A.map((x,i)=>Math.round(x+(B[i]-x)*q).toString(16).padStart(2,'0')).join(''); };
+
+function applicaTema(){
+  const t = {...TEMA_BASE, ...(S.azienda?.tema||{})};
+  const o = {...OMINO_BASE, ...(S.azienda?.omino||{})};
+  const chiaro = luce(t.bg) > .4;                       // sfondo chiaro o scuro?
+  const opposto = chiaro ? '#000000' : '#ffffff';
+  const r = document.documentElement.style;
+  r.setProperty('--bg', t.bg);
+  r.setProperty('--sup', t.sup);
+  r.setProperty('--bordo', mescola(t.sup, opposto, .10));
+  r.setProperty('--testo', t.testo);
+  // I grigi del testo si ricavano dal colore del testo scolorito verso lo
+  // sfondo: cosi' restano leggibili su qualunque fondo, chiaro o scuro.
+  r.setProperty('--t1', mescola(t.testo, t.bg, .35));
+  r.setProperty('--t2', mescola(t.testo, t.bg, .55));
+  r.setProperty('--t3', mescola(t.testo, t.bg, .68));
+  r.setProperty('--t4', mescola(t.testo, t.bg, .80));
+  r.setProperty('--acc', t.acc);
+  r.setProperty('--acc-rgb', aRGB(t.acc).join(','));
+  // Nero o bianco sopra il colore dell'azienda? Si sceglie quello che si
+  // legge meglio. La soglia 0.18 e' il punto in cui i due contrasti si
+  // pareggiano: sopra conviene il nero, sotto il bianco.
+  r.setProperty('--acc-su', luce(t.acc) > .18 ? '#09090b' : '#ffffff');
+  r.setProperty('--casco', o.casco);
+  r.setProperty('--maglia', o.maglia);
+  r.setProperty('--pant', o.pant);
+  r.setProperty('--scarpe', o.scarpe);
+  const meta=document.querySelector('meta[name=theme-color]'); if(meta) meta.content=t.bg;
+}
+
+// ── L'OMINO DELLA SQUADRA ──────────────────────────────────────
+// Ogni azienda gli mette i colori della propria divisa.
+function omino(h=44){
+  return `<svg viewBox="0 0 40 56" width="${h*40/56}" height="${h}" style="display:block">
+    <!-- casco -->
+    <path d="M7 15a13 13 0 0 1 26 0v1H7z" fill="var(--casco)"/>
+    <rect x="5" y="15.5" width="30" height="3" rx="1.5" fill="var(--casco)"/>
+    <path d="M18 3h4v11h-4z" fill="var(--casco)" opacity=".55"/>
+    <!-- viso -->
+    <path d="M13 18h14v6a7 7 0 0 1-14 0z" fill="#c8a07a"/>
+    <!-- maglia -->
+    <path d="M12 26h16a6 6 0 0 1 6 6v9H6v-9a6 6 0 0 1 6-6z" fill="var(--maglia)"/>
+    <path d="M17 26h6l-3 5z" fill="#000" opacity=".16"/>
+    <!-- imbracatura -->
+    <path d="M14 27l12 12M26 27L14 39" stroke="#000" stroke-opacity=".2" stroke-width="1.6"/>
+    <!-- pantaloni -->
+    <path d="M7 41h26v8H7z" fill="var(--pant)"/>
+    <rect x="18.5" y="41" width="3" height="8" fill="#000" opacity=".18"/>
+    <!-- scarpe -->
+    <rect x="6" y="49" width="12" height="5" rx="2" fill="var(--scarpe)"/>
+    <rect x="22" y="49" width="12" height="5" rx="2" fill="var(--scarpe)"/>
+  </svg>`;
+}
 
 // ── COMPRESSIONE FOTO ──────────────────────────────────────────
 // Una foto da telefono pesa 3-4 MB e riempirebbe la memoria in pochi scatti.
@@ -129,20 +212,20 @@ function renderVisore(){
   return `<div style="position:fixed;inset:0;background:#000;z-index:300;display:flex;flex-direction:column">
     <header style="display:flex;justify-content:space-between;align-items:center;padding:1rem 1.25rem;padding-top:calc(1rem + env(safe-area-inset-top));background:rgba(0,0,0,.6);z-index:2">
       <div style="min-width:0">
-        <p style="font-size:.8rem;font-weight:900;color:white;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(L.titolo||'')}</p>
-        <p style="font-size:.65rem;color:#71717a;font-weight:700">${L.i+1} di ${L.foto.length} · ${pesoKB(L.foto[L.i])} KB</p>
+        <p style="font-size:.8rem;font-weight:900;color:var(--testo);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(L.titolo||'')}</p>
+        <p style="font-size:.65rem;color:var(--t2);font-weight:700">${L.i+1} di ${L.foto.length} · ${pesoKB(L.foto[L.i])} KB</p>
       </div>
-      <button onclick="chiudiVisore()" style="background:rgba(39,39,42,.8);color:white;border:none;border-radius:1rem;padding:.6rem 1rem;font-size:.7rem;font-weight:900;text-transform:uppercase;cursor:pointer;flex-shrink:0">Chiudi</button>
+      <button onclick="chiudiVisore()" style="background:rgba(39,39,42,.8);color:var(--testo);border:none;border-radius:1rem;padding:.6rem 1rem;font-size:.7rem;font-weight:900;text-transform:uppercase;cursor:pointer;flex-shrink:0">Chiudi</button>
     </header>
     <div id="lb-area" style="flex:1;overflow:hidden;position:relative;touch-action:none;display:flex;align-items:center;justify-content:center">
       <img id="lb-img" src="${L.foto[L.i]}" draggable="false"
         style="max-width:100%;max-height:100%;object-fit:contain;transform-origin:center center;will-change:transform;user-select:none">
     </div>
     ${L.foto.length>1?`<div style="display:flex;justify-content:center;gap:1rem;padding:1rem;padding-bottom:calc(1rem + env(safe-area-inset-bottom));background:rgba(0,0,0,.6)">
-      <button onclick="scorriFoto(-1)" style="background:rgba(39,39,42,.8);color:white;border:none;border-radius:1rem;padding:.7rem 1.5rem;font-size:1rem;cursor:pointer">‹</button>
-      <button onclick="scorriFoto(1)" style="background:rgba(39,39,42,.8);color:white;border:none;border-radius:1rem;padding:.7rem 1.5rem;font-size:1rem;cursor:pointer">›</button>
+      <button onclick="scorriFoto(-1)" style="background:rgba(39,39,42,.8);color:var(--testo);border:none;border-radius:1rem;padding:.7rem 1.5rem;font-size:1rem;cursor:pointer">‹</button>
+      <button onclick="scorriFoto(1)" style="background:rgba(39,39,42,.8);color:var(--testo);border:none;border-radius:1rem;padding:.7rem 1.5rem;font-size:1rem;cursor:pointer">›</button>
     </div>`:''}
-    <p id="lb-hint" style="position:absolute;bottom:${L.foto.length>1?'5.5rem':'1.5rem'};left:0;right:0;text-align:center;font-size:.62rem;color:#52525b;font-weight:700;text-transform:uppercase;letter-spacing:.1em;pointer-events:none">Due dita per zoomare · doppio tocco</p>
+    <p id="lb-hint" style="position:absolute;bottom:${L.foto.length>1?'5.5rem':'1.5rem'};left:0;right:0;text-align:center;font-size:.62rem;color:var(--t3);font-weight:700;text-transform:uppercase;letter-spacing:.1em;pointer-events:none">Due dita per zoomare · doppio tocco</p>
   </div>`;
 }
 
@@ -209,7 +292,7 @@ async function meteo(lat=45.6495,lng=13.7768){
 }
 const iconaMeteo = c => c==null?'🌤️':c===0?'☀️':c<=3?'⛅':c<=48?'🌫️':c<=67?'🌧️':c>=95?'⛈️':'🌤️';
 const pillolaMeteo = () => S.weather
-  ? `<div id="meteo" style="display:flex;align-items:center;gap:.4rem;background:#18181b;border:1px solid #27272a;padding:.5rem .75rem;border-radius:1rem;font-size:.8rem;font-weight:900">${iconaMeteo(S.weather.weather_code)} ${Math.round(S.weather.temperature_2m)}°</div>`
+  ? `<div id="meteo" style="display:flex;align-items:center;gap:.4rem;background:var(--sup);border:1px solid var(--bordo);padding:.5rem .75rem;border-radius:1rem;font-size:.8rem;font-weight:900">${iconaMeteo(S.weather.weather_code)} ${Math.round(S.weather.temperature_2m)}°</div>`
   : `<div id="meteo"></div>`;
 
 // ── ICONE ──────────────────────────────────────────────────────
@@ -239,13 +322,13 @@ const I = {
 };
 
 // ── STILI RIUSABILI ────────────────────────────────────────────
-const sInput = 'width:100%;background:#09090b;border:1px solid #27272a;border-radius:1rem;padding:1rem;font-size:.9rem;color:white';
-const sLabel = 'font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.15em;color:#52525b;display:block;margin-bottom:.5rem';
-const sBtn   = 'width:100%;background:#f97316;color:#09090b;font-weight:900;padding:1.1rem;border-radius:1.25rem;font-size:.72rem;text-transform:uppercase;letter-spacing:.12em;border:none;cursor:pointer';
-const sBtn2  = 'width:100%;background:#18181b;color:#d4d4d8;font-weight:900;padding:1.1rem;border-radius:1.25rem;font-size:.72rem;text-transform:uppercase;letter-spacing:.12em;border:1px solid #27272a;cursor:pointer';
-const sCard  = 'background:#18181b;border:1px solid #27272a;border-radius:1.5rem;padding:1.25rem';
+const sInput = 'width:100%;background:var(--bg);border:1px solid var(--bordo);border-radius:1rem;padding:1rem;font-size:.9rem;color:var(--testo)';
+const sLabel = 'font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.15em;color:var(--t3);display:block;margin-bottom:.5rem';
+const sBtn   = 'width:100%;background:var(--acc);color:var(--bg);font-weight:900;padding:1.1rem;border-radius:1.25rem;font-size:.72rem;text-transform:uppercase;letter-spacing:.12em;border:none;cursor:pointer';
+const sBtn2  = 'width:100%;background:var(--sup);color:var(--testo);font-weight:900;padding:1.1rem;border-radius:1.25rem;font-size:.72rem;text-transform:uppercase;letter-spacing:.12em;border:1px solid var(--bordo);cursor:pointer';
+const sCard  = 'background:var(--sup);border:1px solid var(--bordo);border-radius:1.5rem;padding:1.25rem';
 const sTit   = 'font-size:1.5rem;font-weight:900;text-transform:uppercase;font-style:italic;letter-spacing:-.03em';
-const sSot   = 'font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.15em;color:#52525b';
+const sSot   = 'font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.15em;color:var(--t3)';
 
 // ══════════════════════════════════════════════════════════════
 //  RENDER PRINCIPALE
@@ -256,6 +339,7 @@ function render(){
   if(!S.account)                 html = renderOnboarding();
   else if(S.sostituzione)        html = renderSostituzione();
   else if(S.account.stato==='attesa') html = renderInAttesa();
+  else if(S.impostazioni && puoAmministrare(S.account)) html = renderImpostazioni();
   else if(S.selPrj)              html = renderPrjDetail();
   else html = `
     <div style="height:100dvh;display:flex;flex-direction:column;overflow:hidden">
@@ -269,9 +353,9 @@ function render(){
 
 function renderAvviso(){
   const c = S.msg.tipo==='ko' ? '#ef4444' : '#22c55e';
-  return `<div class="su" style="position:fixed;left:1rem;right:1rem;bottom:6.5rem;z-index:200;background:#18181b;border:1px solid ${c};border-radius:1.25rem;padding:1rem 1.25rem;display:flex;gap:.75rem;align-items:center;box-shadow:0 10px 40px rgba(0,0,0,.6)">
+  return `<div class="su" style="position:fixed;left:1rem;right:1rem;bottom:6.5rem;z-index:200;background:var(--sup);border:1px solid ${c};border-radius:1.25rem;padding:1rem 1.25rem;display:flex;gap:.75rem;align-items:center;box-shadow:0 10px 40px rgba(0,0,0,.6)">
     <span style="font-size:1.1rem">${S.msg.tipo==='ko'?'⚠️':'✅'}</span>
-    <span style="font-size:.8rem;font-weight:600;color:#e4e4e7;line-height:1.4">${esc(S.msg.testo)}</span>
+    <span style="font-size:.8rem;font-weight:600;color:var(--testo);line-height:1.4">${esc(S.msg.testo)}</span>
   </div>`;
 }
 
@@ -279,7 +363,7 @@ function renderAvviso(){
 //  ① ONBOARDING — Registra Azienda / Registra Operatore / Accedi
 // ══════════════════════════════════════════════════════════════
 function logoGrande(){
-  return `<img src="icons/icon-512.png" alt="RigOps" style="width:7.5rem;height:7.5rem;border-radius:2rem;object-fit:cover;box-shadow:0 0 50px rgba(249,115,22,.25)">`;
+  return `<img src="icons/icon-512.png" alt="RigOps" style="width:7.5rem;height:7.5rem;border-radius:2rem;object-fit:cover;box-shadow:0 0 50px rgba(var(--acc-rgb),.25)">`;
 }
 
 function renderOnboarding(){
@@ -288,36 +372,36 @@ function renderOnboarding(){
     'conferma-azienda': renderConfermaAzienda,
     operatore: renderRegOperatore, accedi: renderAccedi,
   }[S.schermata] || renderScelta;
-  return `<div class="su" style="height:100dvh;overflow-y:auto;background:#09090b;padding:2rem 1.5rem 3rem;display:flex;flex-direction:column;align-items:center;gap:1.75rem">${c()}</div>`;
+  return `<div class="su" style="height:100dvh;overflow-y:auto;background:var(--bg);padding:2rem 1.5rem 3rem;display:flex;flex-direction:column;align-items:center;gap:1.75rem">${c()}</div>`;
 }
 
 function renderScelta(){
   return `
     ${logoGrande()}
     <div style="text-align:center">
-      <h1 class="fd" style="font-size:2.75rem;font-weight:900;text-transform:uppercase;font-style:italic;letter-spacing:-.04em;line-height:1">RIG<span style="color:#f97316">OPS</span></h1>
+      <h1 class="fd" style="font-size:2.75rem;font-weight:900;text-transform:uppercase;font-style:italic;letter-spacing:-.04em;line-height:1">RIG<span style="color:var(--acc)">OPS</span></h1>
       <p style="${sSot};margin-top:.5rem">Gestione squadre e cantieri</p>
     </div>
     <div style="width:100%;max-width:22rem;display:flex;flex-direction:column;gap:.9rem;margin-top:.5rem">
       <button onclick="vai('azienda')" style="${sBtn};padding:1.35rem">🏢 &nbsp;Registra Azienda</button>
       <button onclick="vai('operatore')" style="${sBtn2};padding:1.35rem">👷 &nbsp;Registra Operatore</button>
-      <div style="height:1px;background:#27272a;margin:.5rem 0"></div>
-      <button onclick="vai('accedi')" style="background:none;border:none;color:#71717a;font-size:.8rem;font-weight:700;cursor:pointer;padding:.5rem">Ho già un account — <span style="color:#f97316">Accedi</span></button>
+      <div style="height:1px;background:var(--bordo);margin:.5rem 0"></div>
+      <button onclick="vai('accedi')" style="background:none;border:none;color:var(--t2);font-size:.8rem;font-weight:700;cursor:pointer;padding:.5rem">Ho già un account — <span style="color:var(--acc)">Accedi</span></button>
     </div>
-    <div style="max-width:22rem;background:rgba(24,24,27,.6);border:1px solid #27272a;border-radius:1.25rem;padding:1rem;display:flex;gap:.75rem">
+    <div style="max-width:22rem;background:rgba(24,24,27,.6);border:1px solid var(--bordo);border-radius:1.25rem;padding:1rem;display:flex;gap:.75rem">
       <span style="font-size:1rem">💡</span>
-      <p style="font-size:.7rem;color:#71717a;line-height:1.5">
-        <b style="color:#a1a1aa">Il capo</b> registra l'azienda e ottiene un codice.<br>
-        <b style="color:#a1a1aa">Gli operai</b> usano quel codice per entrare nella squadra.
+      <p style="font-size:.7rem;color:var(--t2);line-height:1.5">
+        <b style="color:var(--t1)">Il capo</b> registra l'azienda e ottiene un codice.<br>
+        <b style="color:var(--t1)">Gli operai</b> usano quel codice per entrare nella squadra.
       </p>
     </div>
-    <p style="font-size:.6rem;color:#3f3f46;font-weight:700;text-transform:uppercase;letter-spacing:.15em;text-align:center;margin-top:auto;padding-top:1.5rem">Anteprima locale · i dati restano su questo dispositivo</p>`;
+    <p style="font-size:.6rem;color:var(--t4);font-weight:700;text-transform:uppercase;letter-spacing:.15em;text-align:center;margin-top:auto;padding-top:1.5rem">Anteprima locale · i dati restano su questo dispositivo</p>`;
 }
 
 function intestazione(titolo, sotto){
   return `
     <div style="width:100%;max-width:22rem;display:flex;align-items:center;gap:.75rem">
-      <button onclick="vai('scelta')" style="background:#18181b;border:1px solid #27272a;border-radius:.9rem;padding:.6rem;color:#a1a1aa;cursor:pointer;display:flex">${I.back}</button>
+      <button onclick="vai('scelta')" style="background:var(--sup);border:1px solid var(--bordo);border-radius:.9rem;padding:.6rem;color:var(--t1);cursor:pointer;display:flex">${I.back}</button>
       <img src="icons/icon-192.png" style="width:2.25rem;height:2.25rem;border-radius:.75rem;object-fit:cover">
     </div>
     <div style="width:100%;max-width:22rem">
@@ -333,21 +417,21 @@ function renderRegAzienda(){
     <!-- ① L'AZIENDA -->
     <div style="width:100%;max-width:22rem;display:flex;flex-direction:column;gap:1rem">
       <div style="display:flex;align-items:center;gap:.6rem">
-        <span style="width:1.5rem;height:1.5rem;border-radius:50%;background:#f97316;color:#09090b;font-size:.7rem;font-weight:900;display:flex;align-items:center;justify-content:center">1</span>
-        <p style="${sSot};color:#f97316">L'azienda</p>
+        <span style="width:1.5rem;height:1.5rem;border-radius:50%;background:var(--acc);color:var(--bg);font-size:.7rem;font-weight:900;display:flex;align-items:center;justify-content:center">1</span>
+        <p style="${sSot};color:var(--acc)">L'azienda</p>
       </div>
       <div><label style="${sLabel}">Nome dell'azienda</label>
         <input id="r-az" style="${sInput}" placeholder="es. Edilquota Srl" value="${esc(S.reg.az||'')}"></div>
       <div><label style="${sLabel}">Email dell'azienda</label>
         <input id="r-mail" type="email" inputmode="email" autocomplete="email" style="${sInput}" placeholder="es. info@edilquota.it" value="${esc(S.reg.mail||'')}">
-        <p style="font-size:.65rem;color:#52525b;margin-top:.4rem;line-height:1.4">Ci arriverà il codice di conferma. Sarà anche l'email con cui il titolare entra nell'app.</p></div>
+        <p style="font-size:.65rem;color:var(--t3);margin-top:.4rem;line-height:1.4">Ci arriverà il codice di conferma. Sarà anche l'email con cui il titolare entra nell'app.</p></div>
 
-      <div style="height:1px;background:#27272a;margin:.5rem 0"></div>
+      <div style="height:1px;background:var(--bordo);margin:.5rem 0"></div>
 
       <!-- ② IL TITOLARE -->
       <div style="display:flex;align-items:center;gap:.6rem">
-        <span style="width:1.5rem;height:1.5rem;border-radius:50%;background:#f97316;color:#09090b;font-size:.7rem;font-weight:900;display:flex;align-items:center;justify-content:center">2</span>
-        <p style="${sSot};color:#f97316">Registra il titolare</p>
+        <span style="width:1.5rem;height:1.5rem;border-radius:50%;background:var(--acc);color:var(--bg);font-size:.7rem;font-weight:900;display:flex;align-items:center;justify-content:center">2</span>
+        <p style="${sSot};color:var(--acc)">Registra il titolare</p>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
         <div><label style="${sLabel}">Nome</label>
@@ -357,14 +441,27 @@ function renderRegAzienda(){
       </div>
       <div><label style="${sLabel}">Ruolo</label>
         <input id="r-ruolo" style="${sInput}" placeholder="es. Titolare" value="${esc(S.reg.ruolo||'')}"></div>
+
+      <div>
+        <label style="${sLabel}">Email del titolare</label>
+        <div style="display:flex;gap:.5rem;margin-bottom:${S.reg.mailDiversa?'.75rem':'0'}">
+          <button onclick="emailTitolare(false)" style="flex:1;background:${!S.reg.mailDiversa?'var(--acc)':'var(--bordo)'};color:${!S.reg.mailDiversa?'var(--acc-su)':'var(--t1)'};border:none;border-radius:.9rem;padding:.75rem .5rem;font-size:.62rem;font-weight:900;text-transform:uppercase;cursor:pointer;line-height:1.3">Usa l'email<br>aziendale</button>
+          <button onclick="emailTitolare(true)" style="flex:1;background:${S.reg.mailDiversa?'var(--acc)':'var(--bordo)'};color:${S.reg.mailDiversa?'var(--acc-su)':'var(--t1)'};border:none;border-radius:.9rem;padding:.75rem .5rem;font-size:.62rem;font-weight:900;text-transform:uppercase;cursor:pointer;line-height:1.3">Usa un'altra<br>email</button>
+        </div>
+        ${S.reg.mailDiversa
+          ? `<input id="r-mailtit" type="email" inputmode="email" style="${sInput}" placeholder="es. mario.rossi@gmail.com" value="${esc(S.reg.mailTit||'')}">
+             <p style="font-size:.65rem;color:var(--t3);margin-top:.4rem;line-height:1.4">Entrerai nell'app con questa. Va confermata anche lei.</p>`
+          : `<p style="font-size:.65rem;color:var(--t3);line-height:1.4;margin-top:.4rem">Entrerai nell'app con l'email dell'azienda scritta qui sopra.</p>`}
+      </div>
+
       <div><label style="${sLabel}">Password</label>
         <input id="r-pwd" type="password" autocomplete="new-password" style="${sInput}" placeholder="almeno 8 caratteri"></div>
 
       <button onclick="creaAzienda()" style="${sBtn};margin-top:.75rem">Crea l'azienda</button>
     </div>
 
-    <div style="max-width:22rem;background:rgba(249,115,22,.07);border:1px solid rgba(249,115,22,.25);border-radius:1.25rem;padding:1rem">
-      <p style="font-size:.7rem;color:#a1a1aa;line-height:1.5">Dopo la conferma dell'email ricevi il <b style="color:#f97316">codice azienda</b>: è quello che darai ai tuoi operai per farli entrare. Potrai cambiarlo quando vuoi.</p>
+    <div style="max-width:22rem;background:rgba(var(--acc-rgb),.07);border:1px solid rgba(var(--acc-rgb),.25);border-radius:1.25rem;padding:1rem">
+      <p style="font-size:.7rem;color:var(--t1);line-height:1.5">Dopo la conferma dell'email ricevi il <b style="color:var(--acc)">codice azienda</b>: è quello che darai ai tuoi operai per farli entrare. Potrai cambiarlo quando vuoi.</p>
     </div>`;
 }
 
@@ -374,19 +471,19 @@ function renderRegAzienda(){
 function renderConfermaAzienda(){
   return `
     ${intestazione('Conferma l\'email','Ultimo passo')}
-    <p style="font-size:.85rem;color:#a1a1aa;line-height:1.6;text-align:center;max-width:21rem">
-      Abbiamo inviato un codice a<br><b style="color:#f97316">${esc(S.reg.mail)}</b>
+    <p style="font-size:.85rem;color:var(--t1);line-height:1.6;text-align:center;max-width:21rem">
+      Abbiamo inviato un codice a<br><b style="color:var(--acc)">${esc(S.reg.mail)}</b>
     </p>
-    <div style="${sCard};width:100%;max-width:22rem;background:rgba(249,115,22,.07);border-color:rgba(249,115,22,.3)">
+    <div style="${sCard};width:100%;max-width:22rem;background:rgba(var(--acc-rgb),.07);border-color:rgba(var(--acc-rgb),.3)">
       <p style="${sSot};margin-bottom:.5rem">Anteprima locale — il codice è</p>
-      <p class="fd" style="font-size:2rem;font-weight:900;letter-spacing:.3em;color:#f97316;text-align:center">${S.reg.codiceEmail}</p>
-      <p style="font-size:.65rem;color:#52525b;text-align:center;margin-top:.5rem">Col server attivo arriva per email e scade in 10 minuti</p>
+      <p class="fd" style="font-size:2rem;font-weight:900;letter-spacing:.3em;color:var(--acc);text-align:center">${S.reg.codiceEmail}</p>
+      <p style="font-size:.65rem;color:var(--t3);text-align:center;margin-top:.5rem">Col server attivo arriva per email e scade in 10 minuti</p>
     </div>
     <div style="width:100%;max-width:22rem;display:flex;flex-direction:column;gap:1rem">
       <input id="conf-otp" inputmode="numeric" maxlength="6" style="${sInput};text-align:center;font-size:1.5rem;letter-spacing:.4em;font-weight:900" placeholder="------">
       <button onclick="confermaAzienda()" style="${sBtn}">Conferma e crea l'azienda</button>
-      <p style="font-size:.7rem;color:#52525b;text-align:center">Tentativi rimasti: ${3-(S.reg.tentativi||0)}</p>
-      <button onclick="vai('azienda')" style="background:none;border:none;color:#52525b;font-size:.75rem;font-weight:700;cursor:pointer">Correggi i dati</button>
+      <p style="font-size:.7rem;color:var(--t3);text-align:center">Tentativi rimasti: ${3-(S.reg.tentativi||0)}</p>
+      <button onclick="vai('azienda')" style="background:none;border:none;color:var(--t3);font-size:.75rem;font-weight:700;cursor:pointer">Correggi i dati</button>
     </div>`;
 }
 
@@ -406,8 +503,8 @@ function renderRegOperatore(){
         <input id="o-pwd" type="password" style="${sInput}" placeholder="almeno 8 caratteri"></div>
       <button onclick="entraInAzienda()" style="${sBtn};margin-top:.5rem">Chiedi di entrare</button>
     </div>
-    <div style="max-width:22rem;background:rgba(24,24,27,.6);border:1px solid #27272a;border-radius:1.25rem;padding:1rem">
-      <p style="font-size:.7rem;color:#71717a;line-height:1.5">La richiesta resta <b style="color:#a1a1aa">in attesa</b> finché qualcuno della squadra non ti approva. Riceverai l'accesso appena succede.</p>
+    <div style="max-width:22rem;background:rgba(24,24,27,.6);border:1px solid var(--bordo);border-radius:1.25rem;padding:1rem">
+      <p style="font-size:.7rem;color:var(--t2);line-height:1.5">La richiesta resta <b style="color:var(--t1)">in attesa</b> finché qualcuno della squadra non ti approva. Riceverai l'accesso appena succede.</p>
     </div>`;
 }
 
@@ -423,15 +520,28 @@ function renderAccedi(){
 
 function vai(s){ S.schermata=s; render(); }
 
+const valida = m => /^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(m);
+
+// Tiene quello che il titolare ha gia' scritto quando cambia il tipo di email,
+// altrimenti il modulo si svuota sotto le dita.
+function emailTitolare(diversa){
+  S.reg={...S.reg, mailDiversa:diversa,
+    az:val('r-az'), mail:val('r-mail'), nome:val('r-nome'), cog:val('r-cog'),
+    ruolo:val('r-ruolo'), mailTit:val('r-mailtit')||S.reg.mailTit||''};
+  render();
+}
+
 function creaAzienda(){
   const az=val('r-az'), mail=val('r-mail'), nome=val('r-nome'), cog=val('r-cog'), ruolo=val('r-ruolo'), pwd=val('r-pwd');
+  const mailTit = S.reg.mailDiversa ? val('r-mailtit') : mail;
   if(!az) return avviso('Scrivi il nome dell\'azienda','ko');
-  if(!/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(mail)) return avviso('Email dell\'azienda non valida','ko');
+  if(!valida(mail)) return avviso('Email dell\'azienda non valida','ko');
   if(!nome) return avviso('Scrivi il nome del titolare','ko');
   if(!cog)  return avviso('Scrivi il cognome del titolare','ko');
+  if(S.reg.mailDiversa && !valida(mailTit)) return avviso('Email del titolare non valida','ko');
   if(pwd.length<8) return avviso('La password deve avere almeno 8 caratteri','ko');
   // I dati restano in sospeso finche' l'email non e' confermata.
-  S.reg={az,mail,nome,cog,ruolo:ruolo||'Titolare',pwd,codiceEmail:codiceOTP(),tentativi:0};
+  S.reg={...S.reg,az,mail,mailTit,nome,cog,ruolo:ruolo||'Titolare',pwd,codiceEmail:codiceOTP(),tentativi:0};
   S.schermata='conferma-azienda';
   render();
 }
@@ -444,11 +554,13 @@ function confermaAzienda(){
     render(); return avviso('Codice sbagliato','ko');
   }
   const r=S.reg;
-  save('azienda',{nome:r.az,email:r.mail,emailConfermata:true,codice:codiceAzienda(),creata:new Date().toISOString(),approvaTutti:true});
-  const acc={id:db.id(),nome:r.nome,cognome:r.cog,email:r.mail,pwd:hash(r.pwd),tipo:'capo',ruolo:r.ruolo,qualifiche:'',photo64:'',stato:'attivo'};
+  const mailTit = r.mailTit || r.mail;
+  save('azienda',{nome:r.az,email:r.mail,emailConfermata:true,codice:codiceAzienda(),
+    creata:new Date().toISOString(),approvaTutti:true,tema:{...TEMA_BASE},omino:{...OMINO_BASE}});
+  const acc={id:db.id(),nome:r.nome,cognome:r.cog,email:mailTit,pwd:hash(r.pwd),tipo:'capo',ruolo:r.ruolo,qualifiche:'',photo64:'',stato:'attivo'};
   save('account',acc);              // il titolare entra gia' loggato
   save('membri',[{...acc,pwd:undefined}]);
-  save('credenziali',{...S.credenziali,[r.mail]:hash(r.pwd)});
+  save('credenziali',{...S.credenziali,[mailTit]:hash(r.pwd)});
   registraDispositivo();
   addTimeline(`Ha creato l'azienda ${r.az}`,'SUCCESS');
   S.reg={}; S.schermata='scelta';
@@ -490,12 +602,12 @@ const val = id => (document.getElementById(id)?.value||'').trim();
 //  ② IN ATTESA DI APPROVAZIONE
 // ══════════════════════════════════════════════════════════════
 function renderInAttesa(){
-  return `<div class="su" style="height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1.5rem;padding:2rem;text-align:center;background:#09090b">
+  return `<div class="su" style="height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1.5rem;padding:2rem;text-align:center;background:var(--bg)">
     ${logoGrande()}
     <div>
       <h2 class="fd" style="${sTit}">In attesa</h2>
-      <p style="font-size:.85rem;color:#71717a;line-height:1.6;max-width:20rem;margin-top:.75rem">
-        La tua richiesta di entrare in <b style="color:#f97316">${esc(S.azienda?.nome||'')}</b> è stata inviata.<br>
+      <p style="font-size:.85rem;color:var(--t2);line-height:1.6;max-width:20rem;margin-top:.75rem">
+        La tua richiesta di entrare in <b style="color:var(--acc)">${esc(S.azienda?.nome||'')}</b> è stata inviata.<br>
         Chiunque della squadra può approvarla.
       </p>
     </div>
@@ -503,7 +615,7 @@ function renderInAttesa(){
       <p style="${sSot};margin-bottom:.75rem">Anteprima</p>
       <button onclick="autoApprova()" style="${sBtn}">Simula: ti hanno approvato</button>
     </div>
-    <button onclick="esci()" style="background:none;border:none;color:#52525b;font-size:.75rem;font-weight:700;cursor:pointer">Esci</button>
+    <button onclick="esci()" style="background:none;border:none;color:var(--t3);font-size:.75rem;font-weight:700;cursor:pointer">Esci</button>
   </div>`;
 }
 function autoApprova(){
@@ -560,46 +672,46 @@ function renderSostituzione(){
 
   if(S_.fase==='scegli'){
     corpo=`
-      <p style="font-size:.85rem;color:#a1a1aa;line-height:1.6;text-align:center;max-width:21rem">
-        Il tuo account ha già <b style="color:#f97316">due dispositivi</b> registrati.<br>Quale vuoi sostituire con questo?
+      <p style="font-size:.85rem;color:var(--t1);line-height:1.6;text-align:center;max-width:21rem">
+        Il tuo account ha già <b style="color:var(--acc)">due dispositivi</b> registrati.<br>Quale vuoi sostituire con questo?
       </p>
       <div style="width:100%;max-width:21rem;display:flex;flex-direction:column;gap:.75rem">
         ${miei.map(d=>`
           <button onclick="scegliSostituzione('${d.id}')" style="${sCard};display:flex;align-items:center;gap:1rem;cursor:pointer;text-align:left;width:100%">
-            <div style="background:#27272a;padding:.75rem;border-radius:1rem;color:#f97316;display:flex">${d.tipo==='telefono'?I.phone:I.pc}</div>
+            <div style="background:var(--bordo);padding:.75rem;border-radius:1rem;color:var(--acc);display:flex">${d.tipo==='telefono'?I.phone:I.pc}</div>
             <div style="flex:1">
-              <p style="font-weight:900;font-size:.9rem;color:white">${esc(d.nome)}</p>
-              <p style="font-size:.65rem;color:#52525b;font-weight:700;margin-top:.15rem">Ultimo accesso: ${fmtDataOra(d.ultimo)}</p>
+              <p style="font-weight:900;font-size:.9rem;color:var(--testo)">${esc(d.nome)}</p>
+              <p style="font-size:.65rem;color:var(--t3);font-weight:700;margin-top:.15rem">Ultimo accesso: ${fmtDataOra(d.ultimo)}</p>
             </div>
-            <span style="color:#3f3f46;font-size:1.25rem">›</span>
+            <span style="color:var(--t4);font-size:1.25rem">›</span>
           </button>`).join('')}
       </div>
-      <div style="max-width:21rem;background:rgba(24,24,27,.6);border:1px solid #27272a;border-radius:1.25rem;padding:1rem">
-        <p style="font-size:.7rem;color:#71717a;line-height:1.5">Il dispositivo che sostituisci viene <b style="color:#a1a1aa">scollegato subito</b>. Se il vecchio telefono è stato rubato, chi ce l'ha in mano perde l'accesso nello stesso istante.</p>
+      <div style="max-width:21rem;background:rgba(24,24,27,.6);border:1px solid var(--bordo);border-radius:1.25rem;padding:1rem">
+        <p style="font-size:.7rem;color:var(--t2);line-height:1.5">Il dispositivo che sostituisci viene <b style="color:var(--t1)">scollegato subito</b>. Se il vecchio telefono è stato rubato, chi ce l'ha in mano perde l'accesso nello stesso istante.</p>
       </div>
-      <button onclick="S.sostituzione=null;esci()" style="background:none;border:none;color:#52525b;font-size:.75rem;font-weight:700;cursor:pointer">Annulla</button>`;
+      <button onclick="S.sostituzione=null;esci()" style="background:none;border:none;color:var(--t3);font-size:.75rem;font-weight:700;cursor:pointer">Annulla</button>`;
   }
 
   else if(S_.fase==='codice'){
     const d=miei.find(x=>x.id===S_.scelto);
     corpo=`
-      <p style="font-size:.85rem;color:#a1a1aa;line-height:1.6;text-align:center;max-width:21rem">
-        Abbiamo inviato un codice a<br><b style="color:#f97316">${mascheraEmail(S.account.email)}</b>
+      <p style="font-size:.85rem;color:var(--t1);line-height:1.6;text-align:center;max-width:21rem">
+        Abbiamo inviato un codice a<br><b style="color:var(--acc)">${mascheraEmail(S.account.email)}</b>
       </p>
-      <div style="${sCard};width:100%;max-width:21rem;background:rgba(249,115,22,.07);border-color:rgba(249,115,22,.3)">
+      <div style="${sCard};width:100%;max-width:21rem;background:rgba(var(--acc-rgb),.07);border-color:rgba(var(--acc-rgb),.3)">
         <p style="${sSot};margin-bottom:.5rem">Anteprima locale — il codice è</p>
-        <p class="fd" style="font-size:2rem;font-weight:900;letter-spacing:.3em;color:#f97316;text-align:center">${S_.codice}</p>
-        <p style="font-size:.65rem;color:#52525b;text-align:center;margin-top:.5rem">Con il server attivo arriva per email e scade in 10 minuti</p>
+        <p class="fd" style="font-size:2rem;font-weight:900;letter-spacing:.3em;color:var(--acc);text-align:center">${S_.codice}</p>
+        <p style="font-size:.65rem;color:var(--t3);text-align:center;margin-top:.5rem">Con il server attivo arriva per email e scade in 10 minuti</p>
       </div>
       <div style="width:100%;max-width:21rem;display:flex;flex-direction:column;gap:1rem">
         <input id="otp" inputmode="numeric" maxlength="6" style="${sInput};text-align:center;font-size:1.5rem;letter-spacing:.4em;font-weight:900" placeholder="------">
         <button onclick="confermaSostituzione()" style="${sBtn}">Conferma sostituzione</button>
-        <p style="font-size:.7rem;color:#52525b;text-align:center">Sostituirai: <b style="color:#a1a1aa">${esc(d?.nome||'')}</b> · tentativi rimasti: ${3-S_.tentativi}</p>
+        <p style="font-size:.7rem;color:var(--t3);text-align:center">Sostituirai: <b style="color:var(--t1)">${esc(d?.nome||'')}</b> · tentativi rimasti: ${3-S_.tentativi}</p>
       </div>
-      <button onclick="S.sostituzione.fase='scegli';render()" style="background:none;border:none;color:#52525b;font-size:.75rem;font-weight:700;cursor:pointer">Indietro</button>`;
+      <button onclick="S.sostituzione.fase='scegli';render()" style="background:none;border:none;color:var(--t3);font-size:.75rem;font-weight:700;cursor:pointer">Indietro</button>`;
   }
 
-  return `<div class="su" style="height:100dvh;overflow-y:auto;background:#09090b;padding:2.5rem 1.5rem;display:flex;flex-direction:column;align-items:center;gap:1.5rem">
+  return `<div class="su" style="height:100dvh;overflow-y:auto;background:var(--bg);padding:2.5rem 1.5rem;display:flex;flex-direction:column;align-items:center;gap:1.5rem">
     <img src="icons/icon-192.png" style="width:4rem;height:4rem;border-radius:1.25rem;object-fit:cover">
     <div style="text-align:center">
       <h2 class="fd" style="${sTit}">Dispositivi pieni</h2>
@@ -641,11 +753,11 @@ function renderPagina(){
 function renderNav(){
   const t=[{id:'home',l:'Home',i:'🏠'},{id:'magazzino',l:'Magazzino',i:'📦'},{id:'cantieri',l:'Cantieri',i:'🏗️'},{id:'taccuino',l:'Taccuino',i:'📝'},{id:'profilo',l:'Profilo',i:'👤'}];
   const attesa=S.membri.filter(m=>m.stato==='attesa').length;
-  return `<nav style="position:fixed;bottom:0;left:0;right:0;background:rgba(24,24,27,.9);backdrop-filter:blur(14px);border-top:1px solid #27272a;display:flex;justify-content:space-around;padding:8px 0 calc(8px + env(safe-area-inset-bottom));z-index:50">
-    ${t.map(x=>`<button onclick="nav('${x.id}')" style="position:relative;display:flex;flex-direction:column;align-items:center;gap:3px;background:none;border:none;cursor:pointer;padding:4px 10px;color:${S.tab===x.id?'#f97316':'#71717a'}">
+  return `<nav style="position:fixed;bottom:0;left:0;right:0;background:rgba(24,24,27,.9);backdrop-filter:blur(14px);border-top:1px solid var(--bordo);display:flex;justify-content:space-around;padding:8px 0 calc(8px + env(safe-area-inset-bottom));z-index:50">
+    ${t.map(x=>`<button onclick="nav('${x.id}')" style="position:relative;display:flex;flex-direction:column;align-items:center;gap:3px;background:none;border:none;cursor:pointer;padding:4px 10px;color:${S.tab===x.id?'var(--acc)':'var(--t2)'}">
       <span style="font-size:21px;line-height:1">${x.i}</span>
       <span style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em">${x.l}</span>
-      ${x.id==='profilo'&&attesa?`<span class="pulse" style="position:absolute;top:0;right:4px;width:8px;height:8px;background:#f97316;border-radius:50%"></span>`:''}
+      ${x.id==='profilo'&&attesa?`<span class="pulse" style="position:absolute;top:0;right:4px;width:8px;height:8px;background:var(--acc);border-radius:50%"></span>`:''}
     </button>`).join('')}
   </nav>`;
 }
@@ -659,16 +771,16 @@ function renderHome(){
   const tl=S.timeline.slice(0,12);
   return `<div class="su" style="padding:1.5rem;display:flex;flex-direction:column;gap:1.75rem">
     <header style="display:flex;justify-content:space-between;align-items:center">
-      <div style="display:flex;align-items:center;gap:.75rem">
-        <img src="icons/icon-192.png" style="width:2.75rem;height:2.75rem;border-radius:.9rem;object-fit:cover;border:1px solid #27272a">
+      <div style="display:flex;align-items:center;gap:.6rem">
+        <div style="background:var(--sup);border:1px solid var(--bordo);border-radius:.9rem;padding:.3rem .5rem;display:flex;align-items:center">${omino(38)}</div>
         <div>
-          <h1 class="fd" style="font-size:1.15rem;font-weight:900;text-transform:uppercase;font-style:italic;line-height:1">RIG<span style="color:#f97316">OPS</span></h1>
-          <p style="font-size:.6rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#52525b">${esc(S.azienda?.nome||'')}</p>
+          <h1 class="fd" style="font-size:1.15rem;font-weight:900;text-transform:uppercase;font-style:italic;line-height:1">RIG<span style="color:var(--acc)">OPS</span></h1>
+          <p style="font-size:.6rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--t3)">${esc(S.azienda?.nome||'')}</p>
         </div>
       </div>
       <div style="display:flex;gap:.5rem;align-items:center">
         ${pillolaMeteo()}
-        <button onclick="S.showSquadra=true;render()" style="background:#18181b;padding:.7rem;border-radius:1rem;border:1px solid #27272a;color:#a1a1aa;cursor:pointer;display:flex">${I.users}</button>
+        <button onclick="S.showSquadra=true;render()" style="background:var(--sup);padding:.7rem;border-radius:1rem;border:1px solid var(--bordo);color:var(--t1);cursor:pointer;display:flex">${I.users}</button>
       </div>
     </header>
 
@@ -676,7 +788,7 @@ function renderHome(){
       <p style="${sSot};margin-bottom:.75rem">Focus di Giornata</p>
       <div style="${sCard};padding:1.5rem">
         <textarea oninput="db.set('briefing',this.value);S.briefing=this.value" placeholder="Qual è la priorità di oggi?"
-          style="width:100%;background:transparent;border:none;font-size:.9rem;line-height:1.6;color:#d4d4d8;font-style:italic;resize:none;min-height:70px">${esc(S.briefing)}</textarea>
+          style="width:100%;background:transparent;border:none;font-size:.9rem;line-height:1.6;color:var(--testo);font-style:italic;resize:none;min-height:70px">${esc(S.briefing)}</textarea>
       </div>
     </section>
 
@@ -686,7 +798,7 @@ function renderHome(){
         <p style="${sSot}">Da Comprare</p>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
-        ${scarsi.map(m=>`<div style="background:#18181b;border:1px solid rgba(239,68,68,.25);padding:1rem;border-radius:1rem;display:flex;align-items:center;justify-content:space-between;gap:.5rem">
+        ${scarsi.map(m=>`<div style="background:var(--sup);border:1px solid rgba(239,68,68,.25);padding:1rem;border-radius:1rem;display:flex;align-items:center;justify-content:space-between;gap:.5rem">
           <span style="font-size:.75rem;font-weight:500;line-height:1.2">${esc(m.nome)}</span>
           <span style="background:rgba(239,68,68,.2);color:#ef4444;font-size:.65rem;padding:.25rem .6rem;border-radius:9999px;font-weight:900;flex-shrink:0">${m.qta}pz</span>
         </div>`).join('')}
@@ -695,15 +807,15 @@ function renderHome(){
 
     <section>
       <p style="${sSot};margin-bottom:.75rem">Timeline Squadra</p>
-      ${tl.length===0?`<p style="text-align:center;color:#3f3f46;font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.15em;padding:2rem 0">Ancora nessun evento</p>`
-      :tl.map(e=>`<div style="display:flex;gap:1rem;align-items:flex-start;padding-bottom:1rem;margin-bottom:1rem;border-bottom:1px solid #18181b">
-        <div style="width:2.25rem;height:2.25rem;border-radius:50%;background:#18181b;border:1px solid ${e.tipo==='WARNING'?'#ef4444':e.tipo==='SUCCESS'?'#22c55e':'#f97316'};display:flex;align-items:center;justify-content:center;font-size:.65rem;font-weight:900;flex-shrink:0">${iniz(e.userName)}</div>
+      ${tl.length===0?`<p style="text-align:center;color:var(--t4);font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.15em;padding:2rem 0">Ancora nessun evento</p>`
+      :tl.map(e=>`<div style="display:flex;gap:1rem;align-items:flex-start;padding-bottom:1rem;margin-bottom:1rem;border-bottom:1px solid var(--sup)">
+        <div style="width:2.25rem;height:2.25rem;border-radius:50%;background:var(--sup);border:1px solid ${e.tipo==='WARNING'?'#ef4444':e.tipo==='SUCCESS'?'#22c55e':'var(--acc)'};display:flex;align-items:center;justify-content:center;font-size:.65rem;font-weight:900;flex-shrink:0">${iniz(e.userName)}</div>
         <div style="flex:1;min-width:0">
           <div style="display:flex;justify-content:space-between;gap:.5rem">
             <span style="font-size:.75rem;font-weight:900">${esc(e.userName)}</span>
-            <span style="font-size:.65rem;color:#52525b;font-weight:700;flex-shrink:0">${fmtTime(e.timestamp)}</span>
+            <span style="font-size:.65rem;color:var(--t3);font-weight:700;flex-shrink:0">${fmtTime(e.timestamp)}</span>
           </div>
-          <p style="font-size:.72rem;color:#71717a;line-height:1.45;margin-top:.2rem">${esc(e.details)}</p>
+          <p style="font-size:.72rem;color:var(--t2);line-height:1.45;margin-top:.2rem">${esc(e.details)}</p>
         </div>
       </div>`).join('')}
     </section>
@@ -714,10 +826,10 @@ function renderSquadraModal(){
   const attivi=S.membri.filter(m=>m.stato==='attivo');
   const attesa=S.membri.filter(m=>m.stato==='attesa');
   return `<div onclick="S.showSquadra=false;render()" style="position:fixed;inset:0;background:rgba(0,0,0,.85);backdrop-filter:blur(8px);z-index:70;display:flex;align-items:center;justify-content:center;padding:1.5rem">
-    <div onclick="event.stopPropagation()" class="su" style="width:100%;max-width:26rem;max-height:80dvh;overflow-y:auto;background:#18181b;border-radius:1.75rem;border:1px solid #27272a;padding:1.5rem">
+    <div onclick="event.stopPropagation()" class="su" style="width:100%;max-width:26rem;max-height:80dvh;overflow-y:auto;background:var(--sup);border-radius:1.75rem;border:1px solid var(--bordo);padding:1.5rem">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem">
         <h2 class="fd" style="font-size:1.25rem;font-weight:900;text-transform:uppercase;font-style:italic">La Squadra</h2>
-        <button onclick="S.showSquadra=false;render()" style="color:#71717a;background:none;border:none;cursor:pointer;font-size:.8rem;font-weight:700">Chiudi</button>
+        <button onclick="S.showSquadra=false;render()" style="color:var(--t2);background:none;border:none;cursor:pointer;font-size:.8rem;font-weight:700">Chiudi</button>
       </div>
       ${attesa.length?`<p style="${sSot};margin-bottom:.6rem">In attesa di approvazione</p>
         <div style="display:flex;flex-direction:column;gap:.6rem;margin-bottom:1.25rem">${attesa.map(m=>cardMembro(m,true)).join('')}</div>`:''}
@@ -727,20 +839,20 @@ function renderSquadraModal(){
   </div>`;
 }
 function cardMembro(m,inAttesa){
-  return `<div style="background:rgba(39,39,42,.5);padding:.9rem;border-radius:1rem;border:1px solid ${inAttesa?'rgba(249,115,22,.3)':'rgba(63,63,70,.5)'}">
+  return `<div style="background:rgba(39,39,42,.5);padding:.9rem;border-radius:1rem;border:1px solid ${inAttesa?'rgba(var(--acc-rgb),.3)':'rgba(63,63,70,.5)'}">
     <div style="display:flex;align-items:center;gap:.9rem">
-      <div style="width:2.5rem;height:2.5rem;border-radius:50%;overflow:hidden;background:#27272a;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-weight:900;color:#f97316;font-size:.8rem">
+      <div style="width:2.5rem;height:2.5rem;border-radius:50%;overflow:hidden;background:var(--bordo);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-weight:900;color:var(--acc);font-size:.8rem">
         ${m.photo64?`<img src="${m.photo64}" style="width:100%;height:100%;object-fit:cover">`:iniz(m.nome+' '+m.cognome)}
       </div>
       <div style="flex:1;min-width:0">
         <h3 style="font-weight:700;font-size:.85rem">${esc(m.nome)} ${esc(m.cognome)}</h3>
-        <p style="font-size:.62rem;color:#52525b;font-weight:700;text-transform:uppercase;letter-spacing:.08em">${esc(m.ruolo||'')}${m.tipo==='capo'?' · Titolare':''}</p>
+        <p style="font-size:.62rem;color:var(--t3);font-weight:700;text-transform:uppercase;letter-spacing:.08em">${esc(m.ruolo||'')}${m.tipo==='capo'?' · Titolare':''}</p>
       </div>
     </div>
     ${inAttesa?`<div style="display:flex;gap:.4rem;margin-top:.75rem">
-      <button onclick="decidi('${m.id}','attivo')" style="flex:1;background:#f97316;color:#09090b;border:none;border-radius:.75rem;padding:.6rem;font-size:.65rem;font-weight:900;text-transform:uppercase;cursor:pointer">Approva</button>
-      <button onclick="decidi('${m.id}','rifiutato')" style="flex:1;background:#27272a;color:#a1a1aa;border:none;border-radius:.75rem;padding:.6rem;font-size:.65rem;font-weight:900;text-transform:uppercase;cursor:pointer">Rifiuta</button>
-      <button onclick="S.showSquadra=false;render();avviso('Lasciato in attesa')" style="flex:1;background:#27272a;color:#71717a;border:none;border-radius:.75rem;padding:.6rem;font-size:.65rem;font-weight:900;text-transform:uppercase;cursor:pointer">Attendi</button>
+      <button onclick="decidi('${m.id}','attivo')" style="flex:1;background:var(--acc);color:var(--bg);border:none;border-radius:.75rem;padding:.6rem;font-size:.65rem;font-weight:900;text-transform:uppercase;cursor:pointer">Approva</button>
+      <button onclick="decidi('${m.id}','rifiutato')" style="flex:1;background:var(--bordo);color:var(--t1);border:none;border-radius:.75rem;padding:.6rem;font-size:.65rem;font-weight:900;text-transform:uppercase;cursor:pointer">Rifiuta</button>
+      <button onclick="S.showSquadra=false;render();avviso('Lasciato in attesa')" style="flex:1;background:var(--bordo);color:var(--t2);border:none;border-radius:.75rem;padding:.6rem;font-size:.65rem;font-weight:900;text-transform:uppercase;cursor:pointer">Attendi</button>
     </div>`:''}
   </div>`;
 }
@@ -762,59 +874,59 @@ function renderMagazzino(){
   return `<div class="su" style="padding:1.5rem;display:flex;flex-direction:column;gap:1.25rem">
     <header><h1 class="fd" style="${sTit}">Magazzino</h1><p style="${sSot}">Scorte e materiali</p></header>
 
-    ${S.showManageSugg?`<div style="background:rgba(24,24,27,.6);border:1px solid #27272a;border-radius:1.25rem;padding:1rem;display:flex;flex-direction:column;gap:.75rem">
+    ${S.showManageSugg?`<div style="background:rgba(24,24,27,.6);border:1px solid var(--bordo);border-radius:1.25rem;padding:1rem;display:flex;flex-direction:column;gap:.75rem">
       <p style="${sSot}">Suggerimenti rapidi</p>
       <div style="display:flex;flex-wrap:wrap;gap:.4rem">
-        ${S.sugg.map((s,i)=>`<span style="display:flex;align-items:center;gap:.3rem;background:#27272a;padding:.3rem .7rem;border-radius:9999px;font-size:.68rem;font-weight:700;color:#d4d4d8">${esc(s)}<button onclick="rmSugg(${i})" style="background:none;border:none;color:#52525b;cursor:pointer;font-size:.9rem;padding:0">×</button></span>`).join('')}
+        ${S.sugg.map((s,i)=>`<span style="display:flex;align-items:center;gap:.3rem;background:var(--bordo);padding:.3rem .7rem;border-radius:9999px;font-size:.68rem;font-weight:700;color:var(--testo)">${esc(s)}<button onclick="rmSugg(${i})" style="background:none;border:none;color:var(--t3);cursor:pointer;font-size:.9rem;padding:0">×</button></span>`).join('')}
       </div>
-      <input placeholder="Aggiungi + Invio" style="background:#27272a;border:none;border-radius:.75rem;font-size:.75rem;padding:.6rem 1rem;color:white"
+      <input placeholder="Aggiungi + Invio" style="background:var(--bordo);border:none;border-radius:.75rem;font-size:.75rem;padding:.6rem 1rem;color:var(--testo)"
         onkeydown="if(event.key==='Enter'&&this.value){addSugg(this.value);this.value=''}">
     </div>`:''}
 
     <div style="position:relative">
-      <div style="display:flex;gap:.5rem;background:#18181b;padding:.5rem;border-radius:1rem;border:1px solid #27272a;align-items:center">
+      <div style="display:flex;gap:.5rem;background:var(--sup);padding:.5rem;border-radius:1rem;border:1px solid var(--bordo);align-items:center">
         <input id="mat-in" placeholder="Nuovo materiale..." value="${esc(S.newMat)}" oninput="S.newMat=this.value;updSugg()" onfocus="updSugg()" onblur="setTimeout(hideSugg,200)"
-          style="flex:1;background:transparent;border:none;font-size:.9rem;padding:0 .5rem;color:white"
+          style="flex:1;background:transparent;border:none;font-size:.9rem;padding:0 .5rem;color:var(--testo)"
           onkeydown="if(event.key==='Enter')addMat()">
-        <button onclick="S.showManageSugg=!S.showManageSugg;render()" style="width:2.1rem;height:2.1rem;border-radius:.6rem;border:1px solid #27272a;background:${S.showManageSugg?'#f97316':'#18181b'};color:${S.showManageSugg?'#09090b':'#71717a'};cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">${I.search}</button>
-        <button onclick="addMat()" style="background:#f97316;color:#09090b;padding:.7rem;border-radius:.7rem;border:none;cursor:pointer;display:flex;flex-shrink:0">${I.plus}</button>
+        <button onclick="S.showManageSugg=!S.showManageSugg;render()" style="width:2.1rem;height:2.1rem;border-radius:.6rem;border:1px solid var(--bordo);background:${S.showManageSugg?'var(--acc)':'var(--sup)'};color:${S.showManageSugg?'var(--bg)':'var(--t2)'};cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">${I.search}</button>
+        <button onclick="addMat()" style="background:var(--acc);color:var(--bg);padding:.7rem;border-radius:.7rem;border:none;cursor:pointer;display:flex;flex-shrink:0">${I.plus}</button>
       </div>
-      <div id="sugg-box" style="display:none;position:absolute;z-index:20;left:0;right:0;top:calc(100% + .5rem);background:#18181b;border:1px solid #27272a;border-radius:1rem;overflow:hidden;max-height:12rem;overflow-y:auto"></div>
+      <div id="sugg-box" style="display:none;position:absolute;z-index:20;left:0;right:0;top:calc(100% + .5rem);background:var(--sup);border:1px solid var(--bordo);border-radius:1rem;overflow:hidden;max-height:12rem;overflow-y:auto"></div>
     </div>
 
     <div style="position:relative">
-      <span style="position:absolute;left:1rem;top:50%;transform:translateY(-50%);color:#52525b;pointer-events:none">${I.search}</span>
+      <span style="position:absolute;left:1rem;top:50%;transform:translateY(-50%);color:var(--t3);pointer-events:none">${I.search}</span>
       <input value="${esc(S.matSearch)}" oninput="S.matSearch=this.value;render()" placeholder="Cerca materiali..."
-        style="width:100%;background:rgba(24,24,27,.5);border:1px solid #27272a;border-radius:1rem;padding:.75rem 1rem .75rem 3rem;font-size:.85rem;color:white">
+        style="width:100%;background:rgba(24,24,27,.5);border:1px solid var(--bordo);border-radius:1rem;padding:.75rem 1rem .75rem 3rem;font-size:.85rem;color:var(--testo)">
     </div>
 
     <div style="display:flex;flex-direction:column;gap:.9rem">
-      ${f.length===0?`<p style="text-align:center;color:#3f3f46;font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.15em;padding:2.5rem 0">${S.materials.length===0?'Magazzino vuoto':'Nessun risultato'}</p>`:''}
+      ${f.length===0?`<p style="text-align:center;color:var(--t4);font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.15em;padding:2.5rem 0">${S.materials.length===0?'Magazzino vuoto':'Nessun risultato'}</p>`:''}
       ${f.map(m=>{
         const basso=m.allarme&&m.qta<=2;
         // La barra si misura sul materiale piu' numeroso, non su un 200 fisso.
         const pct=Math.min(100,(m.qta/max)*100);
-        return `<div style="${sCard};border-color:${basso?'rgba(249,115,22,.35)':'#27272a'}">
+        return `<div style="${sCard};border-color:${basso?'rgba(var(--acc-rgb),.35)':'var(--bordo)'}">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1rem;gap:.5rem">
             <div style="display:flex;align-items:center;gap:.75rem;min-width:0">
-              <div style="background:#27272a;padding:.5rem;border-radius:.7rem;color:#a1a1aa;display:flex;flex-shrink:0">${I.pkg}</div>
+              <div style="background:var(--bordo);padding:.5rem;border-radius:.7rem;color:var(--t1);display:flex;flex-shrink:0">${I.pkg}</div>
               <div style="min-width:0">
-                <h3 style="font-weight:700;color:white;line-height:1.2;font-size:.9rem">${esc(m.nome)}</h3>
-                <p style="font-size:.62rem;text-transform:uppercase;color:#52525b;margin-top:.15rem">Agg: ${fmtData(m.agg)}</p>
+                <h3 style="font-weight:700;color:var(--testo);line-height:1.2;font-size:.9rem">${esc(m.nome)}</h3>
+                <p style="font-size:.62rem;text-transform:uppercase;color:var(--t3);margin-top:.15rem">Agg: ${fmtData(m.agg)}</p>
               </div>
             </div>
             <div style="display:flex;gap:.4rem;flex-shrink:0">
-              <button onclick="allarme('${m.id}')" style="padding:.5rem;border-radius:.7rem;border:none;cursor:pointer;display:flex;background:${m.allarme?'rgba(249,115,22,.12)':'#27272a'};color:${m.allarme?'#f97316':'#52525b'}">${m.allarme?I.bell:I.belloff}</button>
-              <button onclick="delMat('${m.id}')" style="padding:.5rem;border-radius:.7rem;border:none;cursor:pointer;display:flex;background:#27272a;color:#52525b">${I.trash}</button>
+              <button onclick="allarme('${m.id}')" style="padding:.5rem;border-radius:.7rem;border:none;cursor:pointer;display:flex;background:${m.allarme?'rgba(var(--acc-rgb),.12)':'var(--bordo)'};color:${m.allarme?'var(--acc)':'var(--t3)'}">${m.allarme?I.bell:I.belloff}</button>
+              <button onclick="delMat('${m.id}')" style="padding:.5rem;border-radius:.7rem;border:none;cursor:pointer;display:flex;background:var(--bordo);color:var(--t3)">${I.trash}</button>
             </div>
           </div>
           <div style="display:flex;align-items:center;background:rgba(9,9,11,.6);padding:.4rem;border-radius:1rem;border:1px solid rgba(39,39,42,.6)">
-            <button onclick="qta('${m.id}',-1)" style="padding:.5rem;color:#71717a;background:none;border:none;cursor:pointer;display:flex">${I.minus}</button>
-            <span style="width:2.75rem;text-align:center;font-size:1.2rem;font-weight:900;color:#f97316">${m.qta}</span>
-            <button onclick="qta('${m.id}',1)" style="padding:.5rem;color:#71717a;background:none;border:none;cursor:pointer;display:flex">${I.plus}</button>
+            <button onclick="qta('${m.id}',-1)" style="padding:.5rem;color:var(--t2);background:none;border:none;cursor:pointer;display:flex">${I.minus}</button>
+            <span style="width:2.75rem;text-align:center;font-size:1.2rem;font-weight:900;color:var(--acc)">${m.qta}</span>
+            <button onclick="qta('${m.id}',1)" style="padding:.5rem;color:var(--t2);background:none;border:none;cursor:pointer;display:flex">${I.plus}</button>
             <div style="flex:1;padding:0 .9rem">
-              <div style="height:6px;background:#27272a;border-radius:9999px;overflow:hidden">
-                <div style="height:100%;width:${pct}%;background:${basso?'#ef4444':'#52525b'};border-radius:9999px;transition:width .4s"></div>
+              <div style="height:6px;background:var(--bordo);border-radius:9999px;overflow:hidden">
+                <div style="height:100%;width:${pct}%;background:${basso?'#ef4444':'var(--t3)'};border-radius:9999px;transition:width .4s"></div>
               </div>
             </div>
           </div>
@@ -829,7 +941,7 @@ function updSugg(){
   const m=S.sugg.filter(s=>v&&s.toLowerCase().includes(v.toLowerCase())&&s.toLowerCase()!==v.toLowerCase());
   if(!v||!m.length){el.style.display='none';return;}
   el.style.display='block';
-  el.innerHTML=m.map(s=>`<button type="button" onclick="pickSugg(${JSON.stringify(s).replace(/"/g,'&quot;')})" style="width:100%;text-align:left;padding:.75rem 1rem;font-size:.75rem;font-weight:700;color:#a1a1aa;background:none;border:none;border-bottom:1px solid #27272a;cursor:pointer">${esc(s)}</button>`).join('');
+  el.innerHTML=m.map(s=>`<button type="button" onclick="pickSugg(${JSON.stringify(s).replace(/"/g,'&quot;')})" style="width:100%;text-align:left;padding:.75rem 1rem;font-size:.75rem;font-weight:700;color:var(--t1);background:none;border:none;border-bottom:1px solid var(--bordo);cursor:pointer">${esc(s)}</button>`).join('');
 }
 const hideSugg=()=>{const el=document.getElementById('sugg-box');if(el)el.style.display='none';};
 function pickSugg(v){ S.newMat=v; const i=document.getElementById('mat-in'); if(i)i.value=v; hideSugg(); }
@@ -860,30 +972,30 @@ function renderCantieri(){
   return `<div class="su" style="padding:1.5rem;display:flex;flex-direction:column;gap:1.25rem">
     <header style="display:flex;justify-content:space-between;align-items:center">
       <div><h1 class="fd" style="${sTit}">Cantieri</h1><p style="${sSot}">Archivio e gestione lavori</p></div>
-      <button onclick="apriNuovo()" style="background:#f97316;color:#09090b;padding:.9rem;border-radius:1.25rem;border:none;cursor:pointer;display:flex;box-shadow:0 4px 20px rgba(249,115,22,.2)">${I.plus}</button>
+      <button onclick="apriNuovo()" style="background:var(--acc);color:var(--bg);padding:.9rem;border-radius:1.25rem;border:none;cursor:pointer;display:flex;box-shadow:0 4px 20px rgba(var(--acc-rgb),.2)">${I.plus}</button>
     </header>
     <div style="display:flex;flex-direction:column;gap:.9rem">
-      ${S.projects.length===0?`<p style="text-align:center;color:#3f3f46;font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.15em;padding:2.5rem 0">Nessun cantiere — premi + per aggiungerne uno</p>`:''}
+      ${S.projects.length===0?`<p style="text-align:center;color:var(--t4);font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.15em;padding:2.5rem 0">Nessun cantiere — premi + per aggiungerne uno</p>`:''}
       ${S.projects.map(p=>{
         const fatte=p.fasi.filter(f=>f.fatta).length;
         return `<div onclick="apriPrj('${p.id}')" style="${sCard};border-radius:1.75rem;padding:1.4rem;cursor:pointer">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:.9rem;gap:.5rem">
             <div style="flex:1;min-width:0">
               <h3 style="font-size:1.05rem;font-weight:900;text-transform:uppercase;letter-spacing:-.02em;margin-bottom:.3rem">${esc(p.nome)}</h3>
-              <div style="display:flex;align-items:center;gap:.4rem;color:#71717a;font-size:.72rem">${I.cal}<span>Inizio: ${fmtData(p.inizio)}</span></div>
+              <div style="display:flex;align-items:center;gap:.4rem;color:var(--t2);font-size:.72rem">${I.cal}<span>Inizio: ${fmtData(p.inizio)}</span></div>
             </div>
-            <button onclick="event.stopPropagation();delPrj('${p.id}')" style="padding:.4rem;color:#3f3f46;background:none;border:none;cursor:pointer;display:flex;flex-shrink:0">${I.trash}</button>
+            <button onclick="event.stopPropagation();delPrj('${p.id}')" style="padding:.4rem;color:var(--t4);background:none;border:none;cursor:pointer;display:flex;flex-shrink:0">${I.trash}</button>
           </div>
           <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:.5rem">
             <div style="min-width:0">
-              <div style="display:flex;align-items:center;gap:.35rem;color:#71717a;font-size:.72rem;margin-bottom:.5rem">
+              <div style="display:flex;align-items:center;gap:.35rem;color:var(--t2);font-size:.72rem;margin-bottom:.5rem">
                 ${I.map}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.indirizzo||'Senza indirizzo')}</span>
               </div>
-              <span style="font-size:.62rem;font-weight:700;background:#09090b;border:1px solid #27272a;padding:.25rem .7rem;border-radius:9999px;color:${p.fasi.length?'#a1a1aa':'#3f3f46'}">
+              <span style="font-size:.62rem;font-weight:700;background:var(--bg);border:1px solid var(--bordo);padding:.25rem .7rem;border-radius:9999px;color:${p.fasi.length?'var(--t1)':'var(--t4)'}">
                 ${p.fasi.length?`✅ ${fatte}/${p.fasi.length} completate`:'Nessuna fase'}
               </span>
             </div>
-            ${p.foto?.length?`<span style="font-size:.62rem;color:#52525b;font-weight:700">📷 ${p.foto.length}</span>`:''}
+            ${p.foto?.length?`<span style="font-size:.62rem;color:var(--t3);font-weight:700">📷 ${p.foto.length}</span>`:''}
           </div>
         </div>`;
       }).join('')}
@@ -896,21 +1008,21 @@ function delPrj(id){ if(!confirm('Eliminare il cantiere?'))return; save('project
 
 function renderNewPrjModal(){
   return `<div onclick="S.showNewPrj=false;render()" style="position:fixed;inset:0;background:rgba(0,0,0,.92);backdrop-filter:blur(4px);z-index:100;overflow-y:auto;padding:1.5rem">
-    <div onclick="event.stopPropagation()" class="su" style="max-width:32rem;margin:0 auto;background:#18181b;border-radius:2rem;border:1px solid #27272a;padding:1.75rem;display:flex;flex-direction:column;gap:1.25rem">
+    <div onclick="event.stopPropagation()" class="su" style="max-width:32rem;margin:0 auto;background:var(--sup);border-radius:2rem;border:1px solid var(--bordo);padding:1.75rem;display:flex;flex-direction:column;gap:1.25rem">
       <div style="display:flex;justify-content:space-between;align-items:center">
         <h2 class="fd" style="${sTit}">Nuovo Cantiere</h2>
-        <button onclick="S.showNewPrj=false;render()" style="color:#71717a;background:none;border:none;cursor:pointer;font-weight:700;font-size:.8rem">Chiudi</button>
+        <button onclick="S.showNewPrj=false;render()" style="color:var(--t2);background:none;border:none;cursor:pointer;font-weight:700;font-size:.8rem">Chiudi</button>
       </div>
       <div><label style="${sLabel}">Nome cantiere</label>
         <input id="np-name" value="${esc(S.newPrj.name)}" oninput="S.newPrj.name=this.value" placeholder="es. Condominio Via Roma 12" style="${sInput}"></div>
       <div style="position:relative">
         <label style="${sLabel}">Indirizzo</label>
         <div style="position:relative">
-          <span style="position:absolute;left:1rem;top:50%;transform:translateY(-50%);color:#52525b;pointer-events:none">${I.map}</span>
+          <span style="position:absolute;left:1rem;top:50%;transform:translateY(-50%);color:var(--t3);pointer-events:none">${I.map}</span>
           <input id="np-addr" value="${esc(S.newPrj.addr)}" oninput="S.newPrj.addr=this.value;cercaIndirizzo(this.value)" placeholder="Cerca via, piazza..." style="${sInput};padding-left:3rem">
         </div>
-        ${S.addrSugg.length?`<div style="position:absolute;left:0;right:0;top:calc(100% + .5rem);background:#18181b;border:1px solid #27272a;border-radius:1rem;overflow:hidden;z-index:10;max-height:12rem;overflow-y:auto">
-          ${S.addrSugg.map(s=>`<button onclick="pickAddr(${JSON.stringify(s.display_name).replace(/"/g,'&quot;')},${s.lat},${s.lon})" style="width:100%;text-align:left;padding:.75rem 1rem;font-size:.72rem;color:#a1a1aa;background:none;border:none;border-bottom:1px solid #27272a;cursor:pointer">${esc(s.display_name)}</button>`).join('')}
+        ${S.addrSugg.length?`<div style="position:absolute;left:0;right:0;top:calc(100% + .5rem);background:var(--sup);border:1px solid var(--bordo);border-radius:1rem;overflow:hidden;z-index:10;max-height:12rem;overflow-y:auto">
+          ${S.addrSugg.map(s=>`<button onclick="pickAddr(${JSON.stringify(s.display_name).replace(/"/g,'&quot;')},${s.lat},${s.lon})" style="width:100%;text-align:left;padding:.75rem 1rem;font-size:.72rem;color:var(--t1);background:none;border:none;border-bottom:1px solid var(--bordo);cursor:pointer">${esc(s.display_name)}</button>`).join('')}
         </div>`:''}
         ${S.newPrjCoords?`<p style="font-size:.65rem;color:#22c55e;font-weight:700;margin-top:.5rem">✅ Coordinate GPS acquisite</p>`:''}
       </div>
@@ -949,16 +1061,16 @@ function renderPrjDetail(){
   const p=S.projects.find(x=>x.id===S.selPrj);
   if(!p){ S.selPrj=null; render(); return ''; }
   const tabs=[{id:'info',l:'Cantiere'},{id:'note',l:'Note'},{id:'foto',l:'Foto'}];
-  return `<div class="su" style="height:100dvh;display:flex;flex-direction:column;background:#09090b;overflow:hidden">
-    <header style="padding:1.25rem 1.5rem;border-bottom:1px solid #18181b;display:flex;justify-content:space-between;align-items:center;flex-shrink:0;gap:.5rem">
+  return `<div class="su" style="height:100dvh;display:flex;flex-direction:column;background:var(--bg);overflow:hidden">
+    <header style="padding:1.25rem 1.5rem;border-bottom:1px solid var(--sup);display:flex;justify-content:space-between;align-items:center;flex-shrink:0;gap:.5rem">
       <div style="display:flex;align-items:center;gap:.75rem;min-width:0">
-        <button onclick="S.selPrj=null;render()" style="padding:.4rem;color:#a1a1aa;background:none;border:none;cursor:pointer;display:flex;flex-shrink:0">${I.back}</button>
+        <button onclick="S.selPrj=null;render()" style="padding:.4rem;color:var(--t1);background:none;border:none;cursor:pointer;display:flex;flex-shrink:0">${I.back}</button>
         <h2 style="font-size:.95rem;font-weight:900;text-transform:uppercase;letter-spacing:-.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(p.nome)}</h2>
       </div>
-      ${p.coord?`<a href="https://www.google.com/maps/search/?api=1&query=${p.coord.lat},${p.coord.lng}" target="_blank" rel="noopener" style="background:#18181b;padding:.5rem;border-radius:.75rem;color:#a1a1aa;display:flex;flex-shrink:0">${I.map}</a>`:''}
+      ${p.coord?`<a href="https://www.google.com/maps/search/?api=1&query=${p.coord.lat},${p.coord.lng}" target="_blank" rel="noopener" style="background:var(--sup);padding:.5rem;border-radius:.75rem;color:var(--t1);display:flex;flex-shrink:0">${I.map}</a>`:''}
     </header>
-    <nav style="display:flex;background:rgba(24,24,27,.3);padding:.4rem 1.5rem;border-bottom:1px solid #18181b;flex-shrink:0">
-      ${tabs.map(t=>`<button onclick="S.prjTab='${t.id}';render()" style="padding:.5rem 1rem;font-size:.68rem;font-weight:700;text-transform:uppercase;border:none;background:none;cursor:pointer;border-bottom:2px solid ${S.prjTab===t.id?'#f97316':'transparent'};color:${S.prjTab===t.id?'#f97316':'#52525b'}">${t.l}</button>`).join('')}
+    <nav style="display:flex;background:rgba(24,24,27,.3);padding:.4rem 1.5rem;border-bottom:1px solid var(--sup);flex-shrink:0">
+      ${tabs.map(t=>`<button onclick="S.prjTab='${t.id}';render()" style="padding:.5rem 1rem;font-size:.68rem;font-weight:700;text-transform:uppercase;border:none;background:none;cursor:pointer;border-bottom:2px solid ${S.prjTab===t.id?'var(--acc)':'transparent'};color:${S.prjTab===t.id?'var(--acc)':'var(--t3)'}">${t.l}</button>`).join('')}
     </nav>
     <div style="flex:1;overflow-y:auto;padding:1.5rem">
       ${S.prjTab==='info'?prjInfo(p):S.prjTab==='note'?prjNote(p):prjFoto(p)}
@@ -967,22 +1079,22 @@ function renderPrjDetail(){
 }
 function prjInfo(p){
   return `<div style="display:flex;flex-direction:column;gap:1.5rem">
-    <div style="background:rgba(24,24,27,.5);border:1px solid #18181b;padding:1rem;border-radius:1.25rem">
-      <p style="${sSot};color:#3f3f46;margin-bottom:.25rem">Descrizione</p>
-      <p style="font-size:.85rem;color:#d4d4d8;line-height:1.6;font-style:italic">${esc(p.descrizione||'Nessuna descrizione.')}</p>
+    <div style="background:rgba(24,24,27,.5);border:1px solid var(--sup);padding:1rem;border-radius:1.25rem">
+      <p style="${sSot};color:var(--t4);margin-bottom:.25rem">Descrizione</p>
+      <p style="font-size:.85rem;color:var(--testo);line-height:1.6;font-style:italic">${esc(p.descrizione||'Nessuna descrizione.')}</p>
     </div>
     <section>
       <p style="${sSot};margin-bottom:.75rem">Piano Operativo</p>
       <div style="display:flex;flex-direction:column;gap:.7rem">
-        ${p.fasi.length===0?`<div style="text-align:center;padding:2.5rem;border:2px dashed #18181b;border-radius:1.5rem;color:#3f3f46;font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.15em">Nessuna fase — aggiungila sotto</div>`:''}
-        ${p.fasi.map(f=>`<div style="display:flex;align-items:center;gap:.9rem;background:#18181b;padding:.9rem;border-radius:1rem;border:1px solid #27272a">
-          <button onclick="toggleFase('${p.id}','${f.id}')" style="width:1.5rem;height:1.5rem;border-radius:50%;border:2px solid ${f.fatta?'#f97316':'#3f3f46'};background:${f.fatta?'#f97316':'transparent'};display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer;color:#09090b">${f.fatta?I.check:''}</button>
+        ${p.fasi.length===0?`<div style="text-align:center;padding:2.5rem;border:2px dashed var(--sup);border-radius:1.5rem;color:var(--t4);font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.15em">Nessuna fase — aggiungila sotto</div>`:''}
+        ${p.fasi.map(f=>`<div style="display:flex;align-items:center;gap:.9rem;background:var(--sup);padding:.9rem;border-radius:1rem;border:1px solid var(--bordo)">
+          <button onclick="toggleFase('${p.id}','${f.id}')" style="width:1.5rem;height:1.5rem;border-radius:50%;border:2px solid ${f.fatta?'var(--acc)':'var(--t4)'};background:${f.fatta?'var(--acc)':'transparent'};display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer;color:var(--bg)">${f.fatta?I.check:''}</button>
           ${S.editMilId===f.id
-            ? `<input value="${esc(f.testo)}" style="flex:1;background:#27272a;border:none;border-radius:.5rem;padding:.3rem .5rem;font-size:.85rem;color:white" onblur="salvaFase('${p.id}','${f.id}',this.value)" onkeydown="if(event.key==='Enter')salvaFase('${p.id}','${f.id}',this.value)">`
-            : `<span onclick="S.editMilId='${f.id}';render()" style="flex:1;font-size:.85rem;${f.fatta?'text-decoration:line-through;color:#52525b':'color:white'};cursor:text">${esc(f.testo)}</span>`}
-          <button onclick="delFase('${p.id}','${f.id}')" style="padding:.2rem;color:#3f3f46;background:none;border:none;cursor:pointer;display:flex;flex-shrink:0">${I.trash}</button>
+            ? `<input value="${esc(f.testo)}" style="flex:1;background:var(--bordo);border:none;border-radius:.5rem;padding:.3rem .5rem;font-size:.85rem;color:var(--testo)" onblur="salvaFase('${p.id}','${f.id}',this.value)" onkeydown="if(event.key==='Enter')salvaFase('${p.id}','${f.id}',this.value)">`
+            : `<span onclick="S.editMilId='${f.id}';render()" style="flex:1;font-size:.85rem;${f.fatta?'text-decoration:line-through;color:var(--t3)':'color:var(--testo)'};cursor:text">${esc(f.testo)}</span>`}
+          <button onclick="delFase('${p.id}','${f.id}')" style="padding:.2rem;color:var(--t4);background:none;border:none;cursor:pointer;display:flex;flex-shrink:0">${I.trash}</button>
         </div>`).join('')}
-        <input placeholder="Aggiungi fase + Invio" style="width:100%;background:#18181b;border:1px solid #27272a;border-radius:.75rem;padding:.75rem 1rem;font-size:.75rem;color:white"
+        <input placeholder="Aggiungi fase + Invio" style="width:100%;background:var(--sup);border:1px solid var(--bordo);border-radius:.75rem;padding:.75rem 1rem;font-size:.75rem;color:var(--testo)"
           onkeydown="if(event.key==='Enter'&&this.value){addFase('${p.id}',this.value);this.value=''}">
       </div>
     </section>
@@ -991,16 +1103,16 @@ function prjInfo(p){
 function prjNote(p){
   const n=p.note||[];
   return `<div style="display:flex;flex-direction:column;gap:1rem;min-height:calc(100dvh - 240px)">
-    ${n.length===0?`<div style="text-align:center;padding:2.5rem;color:#3f3f46;display:flex;flex-direction:column;align-items:center;gap:1rem"><span style="font-size:2.5rem">📋</span><p style="${sSot}">Note del cantiere</p></div>`:''}
+    ${n.length===0?`<div style="text-align:center;padding:2.5rem;color:var(--t4);display:flex;flex-direction:column;align-items:center;gap:1rem"><span style="font-size:2.5rem">📋</span><p style="${sSot}">Note del cantiere</p></div>`:''}
     ${n.map(m=>`<div style="max-width:88%;align-self:flex-end;display:flex;flex-direction:column;align-items:flex-end">
-      <div style="background:#f97316;color:#09090b;padding:.9rem 1rem;border-radius:1.25rem;border-top-right-radius:.25rem;font-size:.85rem;line-height:1.5;font-weight:500">${esc(m.testo)}</div>
-      <span style="font-size:.62rem;color:#52525b;font-weight:700;margin-top:.3rem">${esc(m.autore)} · ${fmtTime(m.quando)}</span>
+      <div style="background:var(--acc);color:var(--bg);padding:.9rem 1rem;border-radius:1.25rem;border-top-right-radius:.25rem;font-size:.85rem;line-height:1.5;font-weight:500">${esc(m.testo)}</div>
+      <span style="font-size:.62rem;color:var(--t3);font-weight:700;margin-top:.3rem">${esc(m.autore)} · ${fmtTime(m.quando)}</span>
     </div>`).join('')}
-    <div style="position:sticky;bottom:0;padding-top:1rem;background:#09090b">
-      <div style="display:flex;align-items:flex-end;gap:.5rem;background:#18181b;border:1px solid #27272a;border-radius:1.75rem;padding:.25rem">
-        <textarea id="pn-in" rows="1" placeholder="Scrivi una nota..." style="flex:1;background:transparent;border:none;font-size:.85rem;padding:.5rem 1rem;min-height:40px;max-height:7rem;resize:none;color:white"
+    <div style="position:sticky;bottom:0;padding-top:1rem;background:var(--bg)">
+      <div style="display:flex;align-items:flex-end;gap:.5rem;background:var(--sup);border:1px solid var(--bordo);border-radius:1.75rem;padding:.25rem">
+        <textarea id="pn-in" rows="1" placeholder="Scrivi una nota..." style="flex:1;background:transparent;border:none;font-size:.85rem;padding:.5rem 1rem;min-height:40px;max-height:7rem;resize:none;color:var(--testo)"
           onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();addNotaPrj('${p.id}')}"></textarea>
-        <button onclick="addNotaPrj('${p.id}')" style="background:#f97316;color:#09090b;padding:.7rem;border-radius:1.5rem;border:none;cursor:pointer;display:flex;margin:.25rem">${I.send}</button>
+        <button onclick="addNotaPrj('${p.id}')" style="background:var(--acc);color:var(--bg);padding:.7rem;border-radius:1.5rem;border:none;cursor:pointer;display:flex;margin:.25rem">${I.send}</button>
       </div>
     </div>
   </div>`;
@@ -1012,17 +1124,17 @@ function prjFoto(p){
     <div style="display:flex;justify-content:space-between;align-items:center">
       <div>
         <p style="${sSot}">Foto del cantiere</p>
-        <p style="font-size:.6rem;font-weight:700;color:#3f3f46">${f.length} foto · ${peso} KB · tocca per ingrandire</p>
+        <p style="font-size:.6rem;font-weight:700;color:var(--t4)">${f.length} foto · ${peso} KB · tocca per ingrandire</p>
       </div>
-      <label style="background:#f97316;color:#09090b;padding:.7rem;border-radius:1rem;cursor:pointer;display:flex">
+      <label style="background:var(--acc);color:var(--bg);padding:.7rem;border-radius:1rem;cursor:pointer;display:flex">
         ${I.plus}<input type="file" multiple accept="image/*" style="display:none" onchange="addFoto('${p.id}',this)">
       </label>
     </div>
-    ${f.length===0?`<div style="text-align:center;padding:3rem;color:#3f3f46;display:flex;flex-direction:column;align-items:center;gap:1rem">${I.img}<p style="${sSot}">Nessuna foto</p></div>`
+    ${f.length===0?`<div style="text-align:center;padding:3rem;color:var(--t4);display:flex;flex-direction:column;align-items:center;gap:1rem">${I.img}<p style="${sSot}">Nessuna foto</p></div>`
     :`<div style="display:grid;grid-template-columns:1fr 1fr;gap:.9rem">
-      ${f.map((img,i)=>`<div style="position:relative;aspect-ratio:1;border-radius:1.25rem;overflow:hidden;border:1px solid #27272a">
+      ${f.map((img,i)=>`<div style="position:relative;aspect-ratio:1;border-radius:1.25rem;overflow:hidden;border:1px solid var(--bordo)">
         <img src="${img}" onclick="apriFotoPrj('${p.id}',${i})" style="width:100%;height:100%;object-fit:cover;cursor:zoom-in">
-        <button onclick="event.stopPropagation();delFoto('${p.id}',${i})" style="position:absolute;top:.5rem;right:.5rem;background:rgba(0,0,0,.65);padding:.45rem;border-radius:.7rem;border:none;cursor:pointer;color:white;display:flex">${I.trash}</button>
+        <button onclick="event.stopPropagation();delFoto('${p.id}',${i})" style="position:absolute;top:.5rem;right:.5rem;background:rgba(0,0,0,.65);padding:.45rem;border-radius:.7rem;border:none;cursor:pointer;color:var(--testo);display:flex">${I.trash}</button>
       </div>`).join('')}
     </div>`}
   </div>`;
@@ -1062,24 +1174,24 @@ function renderTaccuino(){
   return `<div class="su" style="padding:1.5rem;display:flex;flex-direction:column;gap:1rem;height:calc(100dvh - 5.5rem)">
     <header><h1 class="fd" style="${sTit}">Taccuino</h1><p style="${sSot}">Note personali — solo tue</p></header>
     <div style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:1rem;min-height:0">
-      ${S.notes.length===0?`<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#27272a;gap:1rem">${I.book}<p style="${sSot};text-align:center">Scrivi la prima nota</p></div>`:''}
+      ${S.notes.length===0?`<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--bordo);gap:1rem">${I.book}<p style="${sSot};text-align:center">Scrivi la prima nota</p></div>`:''}
       ${S.notes.map(n=>`<div style="display:flex;flex-direction:column;align-items:flex-end">
-        <div style="background:#f97316;color:#09090b;padding:.9rem 1rem;border-radius:1.25rem;border-top-right-radius:.25rem;font-size:.85rem;line-height:1.5;font-weight:500;max-width:92%;position:relative">
+        <div style="background:var(--acc);color:var(--bg);padding:.9rem 1rem;border-radius:1.25rem;border-top-right-radius:.25rem;font-size:.85rem;line-height:1.5;font-weight:500;max-width:92%;position:relative">
           ${n.imgs?.length?`<div style="display:grid;grid-template-columns:${n.imgs.length>1?'1fr 1fr':'1fr'};gap:.4rem;margin-bottom:.5rem">${n.imgs.map((im,k)=>`<img src="${im}" onclick="apriFotoNota('${n.id}',${k})" style="border-radius:.7rem;width:100%;aspect-ratio:1;object-fit:cover;cursor:zoom-in">`).join('')}</div>`:''}
           ${esc(n.testo)}
           <button onclick="delNota('${n.id}')" style="position:absolute;top:.4rem;right:.4rem;background:rgba(0,0,0,.2);border:none;cursor:pointer;color:rgba(0,0,0,.5);border-radius:.4rem;padding:.15rem;display:flex">${I.trash.replace(/18/g,'13')}</button>
         </div>
-        <span style="font-size:.62rem;color:#52525b;font-weight:700;margin-top:.3rem">${fmtDataOra(n.quando)}</span>
+        <span style="font-size:.62rem;color:var(--t3);font-weight:700;margin-top:.3rem">${fmtDataOra(n.quando)}</span>
       </div>`).join('')}
     </div>
-    <div style="display:flex;align-items:flex-end;gap:.5rem;background:#18181b;border:1px solid #27272a;border-radius:1.75rem;padding:.25rem;flex-shrink:0">
-      <label style="padding:.7rem;color:#71717a;cursor:pointer;display:flex;position:relative">
+    <div style="display:flex;align-items:flex-end;gap:.5rem;background:var(--sup);border:1px solid var(--bordo);border-radius:1.75rem;padding:.25rem;flex-shrink:0">
+      <label style="padding:.7rem;color:var(--t2);cursor:pointer;display:flex;position:relative">
         ${I.img}<input type="file" multiple accept="image/*" style="display:none" onchange="notaFoto(this)">
-        ${S.noteImgs.length?`<span style="position:absolute;top:.3rem;right:.3rem;width:1rem;height:1rem;background:#f97316;color:#09090b;font-size:.58rem;font-weight:900;border-radius:50%;display:flex;align-items:center;justify-content:center">${S.noteImgs.length}</span>`:''}
+        ${S.noteImgs.length?`<span style="position:absolute;top:.3rem;right:.3rem;width:1rem;height:1rem;background:var(--acc);color:var(--bg);font-size:.58rem;font-weight:900;border-radius:50%;display:flex;align-items:center;justify-content:center">${S.noteImgs.length}</span>`:''}
       </label>
-      <textarea id="nota-in" rows="1" placeholder="Scrivi una nota..." style="flex:1;background:transparent;border:none;font-size:.85rem;padding:.5rem 0;min-height:40px;max-height:7rem;resize:none;color:white"
+      <textarea id="nota-in" rows="1" placeholder="Scrivi una nota..." style="flex:1;background:transparent;border:none;font-size:.85rem;padding:.5rem 0;min-height:40px;max-height:7rem;resize:none;color:var(--testo)"
         onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();addNota()}"></textarea>
-      <button onclick="addNota()" style="background:#f97316;color:#09090b;padding:.7rem;border-radius:1.5rem;border:none;cursor:pointer;display:flex;margin:.25rem">${I.send}</button>
+      <button onclick="addNota()" style="background:var(--acc);color:var(--bg);padding:.7rem;border-radius:1.5rem;border:none;cursor:pointer;display:flex;margin:.25rem">${I.send}</button>
     </div>
   </div>`;
 }
@@ -1108,35 +1220,33 @@ function renderProfilo(){
     <header style="display:flex;flex-direction:column;align-items:center;padding-top:.5rem">
       <label style="position:relative;cursor:pointer">
         <input type="file" accept="image/*" style="display:none" onchange="fotoProfilo(this)">
-        <div style="width:7rem;height:7rem;border-radius:2.25rem;overflow:hidden;border:4px solid #18181b;background:#27272a;display:flex;align-items:center;justify-content:center">
-          ${p.photo64?`<img src="${p.photo64}" style="width:100%;height:100%;object-fit:cover">`:`<span style="color:#3f3f46">${I.user}</span>`}
+        <div style="width:7rem;height:7rem;border-radius:2.25rem;overflow:hidden;border:4px solid var(--sup);background:var(--bordo);display:flex;align-items:center;justify-content:center">
+          ${p.photo64?`<img src="${p.photo64}" style="width:100%;height:100%;object-fit:cover">`:`<span style="color:var(--t4)">${I.user}</span>`}
         </div>
-        <div style="position:absolute;bottom:-4px;right:-4px;background:#f97316;padding:.45rem;border-radius:.9rem;border:4px solid #09090b;color:#09090b;display:flex">${I.cam.replace(/20/g,'13')}</div>
+        <div style="position:absolute;bottom:-4px;right:-4px;background:var(--acc);padding:.45rem;border-radius:.9rem;border:4px solid var(--bg);color:var(--bg);display:flex">${I.cam.replace(/20/g,'13')}</div>
       </label>
-      <h2 class="fd" style="font-size:1.4rem;font-weight:900;font-style:italic;text-transform:uppercase;margin-top:1.25rem">${esc(p.nome)} <span style="color:#f97316">${esc(p.cognome)}</span></h2>
+      <h2 class="fd" style="font-size:1.4rem;font-weight:900;font-style:italic;text-transform:uppercase;margin-top:1.25rem">${esc(p.nome)} <span style="color:var(--acc)">${esc(p.cognome)}</span></h2>
       <p style="${sSot}">${esc(p.ruolo||'')}${p.tipo==='capo'?' · Titolare':''}</p>
     </header>
 
     <!-- AZIENDA -->
-    <section style="${sCard};border-color:rgba(249,115,22,.25);background:rgba(249,115,22,.05)">
-      <p style="${sSot};margin-bottom:.75rem">La tua azienda</p>
-      <h3 class="fd" style="font-size:1.1rem;font-weight:900;text-transform:uppercase;font-style:italic;margin-bottom:.4rem">${esc(S.azienda?.nome||'')}</h3>
-      ${S.azienda?.email?`<p style="font-size:.7rem;color:#71717a;margin-bottom:1rem">${esc(S.azienda.email)} ${S.azienda.emailConfermata?'<span style="color:#22c55e;font-weight:700">· confermata ✓</span>':''}</p>`:'<div style="height:.6rem"></div>'}
-      <p style="${sLabel}">Codice da dare agli operai</p>
-      <div style="display:flex;gap:.5rem;align-items:center">
-        <div style="flex:1;background:#09090b;border:1px dashed rgba(249,115,22,.4);border-radius:1rem;padding:.9rem;text-align:center">
-          <span class="fd" style="font-size:1.05rem;font-weight:900;letter-spacing:.14em;color:#f97316;word-break:break-all">${esc(S.azienda?.codice||'')}</span>
+    <section style="${sCard};border-color:rgba(var(--acc-rgb),.25);background:rgba(var(--acc-rgb),.05)">
+      <p style="${sSot};margin-bottom:.6rem">La tua azienda</p>
+      <div style="display:flex;align-items:center;gap:.9rem;margin-bottom:1rem">
+        <div style="background:var(--bg);border:1px solid var(--bordo);border-radius:.9rem;padding:.3rem .45rem;display:flex">${omino(34)}</div>
+        <div style="min-width:0">
+          <h3 class="fd" style="font-size:1.05rem;font-weight:900;text-transform:uppercase;font-style:italic">${esc(S.azienda?.nome||'')}</h3>
+          ${S.azienda?.email?`<p style="font-size:.68rem;color:var(--t2)">${esc(S.azienda.email)}${S.azienda.emailConfermata?' <span style="color:#22c55e;font-weight:700">✓</span>':''}</p>`:''}
         </div>
-        ${p.tipo==='capo'?`<button onclick="nuovoCodice()" style="background:#27272a;color:#a1a1aa;border:none;border-radius:1rem;padding:.9rem;font-size:.65rem;font-weight:900;text-transform:uppercase;cursor:pointer">Cambia</button>`:''}
       </div>
-      ${p.tipo==='capo'?`<div style="margin-top:1.25rem">
-        <p style="${sLabel}">Chi può approvare i nuovi operatori</p>
-        <div style="display:flex;gap:.5rem">
-          <button onclick="setApprova(true)" style="flex:1;background:${S.azienda.approvaTutti?'#f97316':'#27272a'};color:${S.azienda.approvaTutti?'#09090b':'#a1a1aa'};border:none;border-radius:.9rem;padding:.75rem;font-size:.65rem;font-weight:900;text-transform:uppercase;cursor:pointer">Tutta la squadra</button>
-          <button onclick="setApprova(false)" style="flex:1;background:${!S.azienda.approvaTutti?'#f97316':'#27272a'};color:${!S.azienda.approvaTutti?'#09090b':'#a1a1aa'};border:none;border-radius:.9rem;padding:.75rem;font-size:.65rem;font-weight:900;text-transform:uppercase;cursor:pointer">Solo io</button>
-        </div>
-      </div>`:''}
-      ${attesa.length?`<button onclick="S.showSquadra=true;render()" style="${sBtn};margin-top:1.25rem">⚠️ ${attesa.length} richiesta${attesa.length>1?'e':''} in attesa</button>`:''}
+      <p style="${sLabel}">Codice da dare agli operai</p>
+      <div style="background:var(--bg);border:1px dashed rgba(var(--acc-rgb),.4);border-radius:1rem;padding:.9rem;text-align:center">
+        <span class="fd" style="font-size:1.05rem;font-weight:900;letter-spacing:.14em;color:var(--acc);word-break:break-all">${esc(S.azienda?.codice||'')}</span>
+      </div>
+      ${attesa.length?`<button onclick="S.showSquadra=true;render()" style="${sBtn};margin-top:1rem">⚠️ ${attesa.length} richiesta${attesa.length>1?'e':''} in attesa</button>`:''}
+      ${puoAmministrare(p)
+        ? `<button onclick="S.impostazioni=true;render()" style="${sBtn2};margin-top:.7rem;display:flex;align-items:center;justify-content:center;gap:.5rem">⚙️ Impostazioni azienda</button>`
+        : `<p style="font-size:.65rem;color:var(--t3);margin-top:.9rem;line-height:1.4;text-align:center">Le impostazioni dell'azienda le cambia il titolare, o chi lui ha nominato amministratore.</p>`}
     </section>
 
     <!-- DISPOSITIVI -->
@@ -1146,15 +1256,15 @@ function renderProfilo(){
         ${miei.map(d=>{
           const qui=d.impronta===impronta();
           return `<div style="${sCard};display:flex;align-items:center;gap:1rem">
-            <div style="background:#27272a;padding:.7rem;border-radius:.9rem;color:${qui?'#f97316':'#71717a'};display:flex">${d.tipo==='telefono'?I.phone:I.pc}</div>
+            <div style="background:var(--bordo);padding:.7rem;border-radius:.9rem;color:${qui?'var(--acc)':'var(--t2)'};display:flex">${d.tipo==='telefono'?I.phone:I.pc}</div>
             <div style="flex:1;min-width:0">
               <p style="font-weight:900;font-size:.85rem">${esc(d.nome)} ${qui?`<span style="font-size:.6rem;color:#22c55e;font-weight:700">· questo</span>`:''}</p>
-              <p style="font-size:.62rem;color:#52525b;font-weight:700;margin-top:.1rem">Ultimo accesso: ${fmtDataOra(d.ultimo)}</p>
+              <p style="font-size:.62rem;color:var(--t3);font-weight:700;margin-top:.1rem">Ultimo accesso: ${fmtDataOra(d.ultimo)}</p>
             </div>
-            ${!qui?`<button onclick="scollega('${d.id}')" style="background:#27272a;color:#71717a;border:none;border-radius:.7rem;padding:.5rem .75rem;font-size:.62rem;font-weight:900;text-transform:uppercase;cursor:pointer">Scollega</button>`:''}
+            ${!qui?`<button onclick="scollega('${d.id}')" style="background:var(--bordo);color:var(--t2);border:none;border-radius:.7rem;padding:.5rem .75rem;font-size:.62rem;font-weight:900;text-transform:uppercase;cursor:pointer">Scollega</button>`:''}
           </div>`;
         }).join('')}
-        ${miei.length<2?`<div style="border:2px dashed #27272a;border-radius:1.25rem;padding:1.25rem;text-align:center;color:#3f3f46;font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em">Posto libero per un altro dispositivo</div>`:''}
+        ${miei.length<2?`<div style="border:2px dashed var(--bordo);border-radius:1.25rem;padding:1.25rem;text-align:center;color:var(--t4);font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em">Posto libero per un altro dispositivo</div>`:''}
       </div>
       <button onclick="provaTerzo()" style="${sBtn2};margin-top:.7rem;padding:.9rem;font-size:.62rem">▶ Anteprima: accesso da un terzo dispositivo</button>
     </section>
@@ -1163,21 +1273,21 @@ function renderProfilo(){
     <section style="display:flex;flex-direction:column;gap:1rem">
       <p style="${sSot}">I tuoi dati</p>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
-        <div><label style="${sLabel}">Nome</label><input id="pf-nome" value="${esc(p.nome)}" style="${sInput};background:#18181b"></div>
-        <div><label style="${sLabel}">Cognome</label><input id="pf-cog" value="${esc(p.cognome)}" style="${sInput};background:#18181b"></div>
+        <div><label style="${sLabel}">Nome</label><input id="pf-nome" value="${esc(p.nome)}" style="${sInput};background:var(--sup)"></div>
+        <div><label style="${sLabel}">Cognome</label><input id="pf-cog" value="${esc(p.cognome)}" style="${sInput};background:var(--sup)"></div>
       </div>
-      <div><label style="${sLabel}">Ruolo in squadra</label><input id="pf-ruolo" value="${esc(p.ruolo||'')}" style="${sInput};background:#18181b"></div>
+      <div><label style="${sLabel}">Ruolo in squadra</label><input id="pf-ruolo" value="${esc(p.ruolo||'')}" style="${sInput};background:var(--sup)"></div>
       <div><label style="${sLabel}">Qualifiche e patentini</label>
-        <textarea id="pf-qual" style="${sInput};background:#18181b;min-height:90px;resize:none" placeholder="es. IRATA Level 3, Primo Soccorso, scadenza 02/2029">${esc(p.qualifiche||'')}</textarea></div>
+        <textarea id="pf-qual" style="${sInput};background:var(--sup);min-height:90px;resize:none" placeholder="es. IRATA Level 3, Primo Soccorso, scadenza 02/2029">${esc(p.qualifiche||'')}</textarea></div>
       <button onclick="salvaProfilo()" id="btn-pf" style="${sBtn}">Salva profilo</button>
     </section>
 
     <!-- BACKUP -->
     <section style="${sCard}">
       <p style="${sSot};margin-bottom:.4rem">Backup</p>
-      <p style="font-size:.7rem;color:#71717a;line-height:1.5;margin-bottom:1rem">
+      <p style="font-size:.7rem;color:var(--t2);line-height:1.5;margin-bottom:1rem">
         Finché i dati stanno in questo browser, un backup è l'unica rete di sicurezza.
-        Spazio usato: <b style="color:#f97316">${spazioUsato()} MB</b>
+        Spazio usato: <b style="color:var(--acc)">${spazioUsato()} MB</b>
       </p>
       <div style="display:flex;gap:.5rem">
         <button onclick="esporta()" style="${sBtn2};display:flex;align-items:center;justify-content:center;gap:.5rem">${I.down} Esporta</button>
@@ -1187,8 +1297,8 @@ function renderProfilo(){
     </section>
 
     <section style="${sCard};background:rgba(24,24,27,.5);display:flex;flex-direction:column;align-items:center;gap:.9rem">
-      <p style="${sSot};color:#3f3f46;text-align:center">Anteprima locale · nessun server collegato</p>
-      <p style="font-size:.62rem;color:#27272a;text-align:center;line-height:1.5">I dati restano in questo browser.<br>Il collegamento fra i telefoni della squadra è il passo successivo.</p>
+      <p style="${sSot};color:var(--t4);text-align:center">Anteprima locale · nessun server collegato</p>
+      <p style="font-size:.62rem;color:var(--bordo);text-align:center;line-height:1.5">I dati restano in questo browser.<br>Il collegamento fra i telefoni della squadra è il passo successivo.</p>
       <div style="display:flex;gap:.5rem;width:100%;margin-top:.25rem">
         <button onclick="esci()" style="${sBtn2};padding:.8rem;font-size:.62rem">Esci</button>
         <button onclick="cancellaTutto()" style="${sBtn2};padding:.8rem;font-size:.62rem;color:#ef4444;border-color:rgba(239,68,68,.3)">Cancella tutto</button>
@@ -1196,6 +1306,198 @@ function renderProfilo(){
     </section>
   </div>`;
 }
+// ══════════════════════════════════════════════════════════════
+//  ⑩ IMPOSTAZIONI AZIENDA — solo titolare e amministratori
+// ══════════════════════════════════════════════════════════════
+// Di base un operatore puo' solo aggiungere roba (materiali, cantieri, note):
+// non puo' cambiare niente dell'azienda. Il titolare puo' tutto, e decide
+// uno per uno a chi passare i poteri di amministratore.
+const puoAmministrare = a => !!a && (a.tipo==='capo' || a.admin===true);
+
+const TEMI_PRONTI = {
+  'Notte':    { bg:'#09090b', sup:'#18181b', testo:'#fafafa', acc:'#f97316' },
+  'Carbone':  { bg:'#111827', sup:'#1f2937', testo:'#f9fafb', acc:'#38bdf8' },
+  'Cantiere': { bg:'#1c1917', sup:'#292524', testo:'#fafaf9', acc:'#facc15' },
+  'Chiaro':   { bg:'#f4f4f5', sup:'#ffffff', testo:'#18181b', acc:'#ea580c' },
+};
+
+function renderImpostazioni(){
+  const az=S.azienda||{};
+  const tema={...TEMA_BASE,...(az.tema||{})};
+  const om={...OMINO_BASE,...(az.omino||{})};
+  const altri=S.membri.filter(m=>m.stato==='attivo'&&m.tipo!=='capo');
+  const sSez='font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.15em;color:var(--acc);margin-bottom:.9rem';
+
+  const colore=(etichetta,chiave,valore,fn)=>`
+    <label style="display:flex;align-items:center;justify-content:space-between;gap:1rem;background:var(--bg);border:1px solid var(--bordo);border-radius:1rem;padding:.75rem 1rem;cursor:pointer">
+      <span style="font-size:.78rem;font-weight:600;color:var(--t1)">${etichetta}</span>
+      <span style="display:flex;align-items:center;gap:.6rem">
+        <span style="font-size:.62rem;color:var(--t3);font-weight:700;font-family:monospace">${valore.toUpperCase()}</span>
+        <input type="color" value="${valore}" oninput="${fn}('${chiave}',this.value)"
+          style="width:2.4rem;height:2.4rem;border:1px solid var(--bordo);border-radius:.7rem;background:none;cursor:pointer;padding:2px">
+      </span>
+    </label>`;
+
+  return `<div class="su" style="height:100dvh;display:flex;flex-direction:column;background:var(--bg);overflow:hidden">
+    <header style="padding:1.25rem 1.5rem;border-bottom:1px solid var(--sup);display:flex;align-items:center;gap:.75rem;flex-shrink:0">
+      <button onclick="S.impostazioni=false;render()" style="padding:.4rem;color:var(--t1);background:none;border:none;cursor:pointer;display:flex">${I.back}</button>
+      <div>
+        <h2 class="fd" style="font-size:1.1rem;font-weight:900;text-transform:uppercase;font-style:italic">Impostazioni azienda</h2>
+        <p style="font-size:.6rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--t3)">${esc(az.nome||'')}</p>
+      </div>
+    </header>
+
+    <div style="flex:1;overflow-y:auto;padding:1.5rem;display:flex;flex-direction:column;gap:2rem;padding-bottom:3rem">
+
+      <!-- DATI -->
+      <section>
+        <p style="${sSez}">Dati dell'azienda</p>
+        <div style="display:flex;flex-direction:column;gap:1rem">
+          <div><label style="${sLabel}">Nome dell'azienda</label>
+            <input id="i-nome" value="${esc(az.nome||'')}" style="${sInput};background:var(--sup)"></div>
+          <div><label style="${sLabel}">Email dell'azienda</label>
+            <input id="i-mail" type="email" value="${esc(az.email||'')}" style="${sInput};background:var(--sup)">
+            <p style="font-size:.65rem;color:var(--t3);margin-top:.4rem;line-height:1.4">Se la cambi va confermata di nuovo con un codice.</p></div>
+          <button onclick="salvaDatiAzienda()" style="${sBtn}">Salva i dati</button>
+        </div>
+      </section>
+
+      <!-- CODICE -->
+      <section>
+        <p style="${sSez}">Codice d'ingresso</p>
+        <div style="background:var(--sup);border:1px dashed rgba(var(--acc-rgb),.4);border-radius:1rem;padding:1rem;text-align:center;margin-bottom:.7rem">
+          <span class="fd" style="font-size:1.05rem;font-weight:900;letter-spacing:.14em;color:var(--acc);word-break:break-all">${esc(az.codice||'')}</span>
+        </div>
+        <button onclick="nuovoCodice()" style="${sBtn2}">Genera un codice nuovo</button>
+        <p style="font-size:.65rem;color:var(--t3);margin-top:.6rem;line-height:1.4">Il vecchio smette di funzionare: usalo quando il codice è girato troppo o qualcuno se n'è andato.</p>
+      </section>
+
+      <!-- APPROVAZIONI -->
+      <section>
+        <p style="${sSez}">Chi approva i nuovi operatori</p>
+        <div style="display:flex;gap:.5rem">
+          <button onclick="setApprova(true)" style="flex:1;background:${az.approvaTutti?'var(--acc)':'var(--bordo)'};color:${az.approvaTutti?'var(--acc-su)':'var(--t1)'};border:none;border-radius:.9rem;padding:.85rem;font-size:.65rem;font-weight:900;text-transform:uppercase;cursor:pointer">Tutta la squadra</button>
+          <button onclick="setApprova(false)" style="flex:1;background:${!az.approvaTutti?'var(--acc)':'var(--bordo)'};color:${!az.approvaTutti?'var(--acc-su)':'var(--t1)'};border:none;border-radius:.9rem;padding:.85rem;font-size:.65rem;font-weight:900;text-transform:uppercase;cursor:pointer">Solo chi amministra</button>
+        </div>
+      </section>
+
+      <!-- COLLABORATORI E POTERI -->
+      <section>
+        <p style="${sSez}">Collaboratori e poteri</p>
+        <div style="background:rgba(var(--acc-rgb),.07);border:1px solid rgba(var(--acc-rgb),.2);border-radius:1rem;padding:.9rem;margin-bottom:.9rem">
+          <p style="font-size:.7rem;color:var(--t1);line-height:1.5">Di base un collaboratore <b>aggiunge soltanto</b>: materiali, cantieri, fasi, note, foto. Non può cambiare le impostazioni. Qui dai l'amministrazione a chi vuoi, uno per uno.</p>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:.7rem">
+          <div style="${sCard};display:flex;align-items:center;gap:.9rem;border-color:rgba(var(--acc-rgb),.3)">
+            <div style="width:2.4rem;height:2.4rem;border-radius:50%;background:var(--bordo);display:flex;align-items:center;justify-content:center;font-weight:900;color:var(--acc);font-size:.75rem;flex-shrink:0">${iniz(S.account.nome+' '+S.account.cognome)}</div>
+            <div style="flex:1;min-width:0">
+              <p style="font-weight:900;font-size:.85rem">${esc(S.account.nome)} ${esc(S.account.cognome)}</p>
+              <p style="font-size:.62rem;color:var(--t3);font-weight:700;text-transform:uppercase">Titolare · può fare tutto</p>
+            </div>
+            <span style="font-size:1rem">👑</span>
+          </div>
+          ${altri.length===0?`<p style="text-align:center;color:var(--t4);font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;padding:1.5rem 0">Ancora nessun collaboratore</p>`:''}
+          ${altri.map(m=>`
+            <div style="${sCard};display:flex;align-items:center;gap:.9rem">
+              <div style="width:2.4rem;height:2.4rem;border-radius:50%;overflow:hidden;background:var(--bordo);display:flex;align-items:center;justify-content:center;font-weight:900;color:var(--acc);font-size:.75rem;flex-shrink:0">
+                ${m.photo64?`<img src="${m.photo64}" style="width:100%;height:100%;object-fit:cover">`:iniz(m.nome+' '+m.cognome)}
+              </div>
+              <div style="flex:1;min-width:0">
+                <p style="font-weight:900;font-size:.85rem">${esc(m.nome)} ${esc(m.cognome)}</p>
+                <p style="font-size:.62rem;color:${m.admin?'var(--acc)':'var(--t3)'};font-weight:700;text-transform:uppercase">${m.admin?'Amministratore':esc(m.ruolo||'Operatore')}</p>
+              </div>
+              <button onclick="delega('${m.id}')" style="background:${m.admin?'var(--acc)':'var(--bordo)'};border:none;border-radius:999px;width:3.2rem;height:1.8rem;cursor:pointer;position:relative;flex-shrink:0;transition:background .2s">
+                <span style="position:absolute;top:3px;left:${m.admin?'1.55rem':'3px'};width:1.3rem;height:1.3rem;border-radius:50%;background:${m.admin?'var(--acc-su)':'var(--t2)'};transition:left .2s"></span>
+              </button>
+            </div>`).join('')}
+        </div>
+      </section>
+
+      <!-- COLORI -->
+      <section>
+        <p style="${sSez}">Colori dell'app</p>
+        <div style="display:flex;gap:.5rem;margin-bottom:1rem;flex-wrap:wrap">
+          ${Object.entries(TEMI_PRONTI).map(([nome,t])=>`
+            <button onclick="temaPronto('${nome}')" style="flex:1;min-width:4.5rem;background:${t.bg};border:1px solid ${JSON.stringify(t)===JSON.stringify(tema)?t.acc:'var(--bordo)'};border-radius:1rem;padding:.7rem .4rem;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:.4rem">
+              <span style="display:flex;gap:3px">
+                <span style="width:9px;height:9px;border-radius:50%;background:${t.acc}"></span>
+                <span style="width:9px;height:9px;border-radius:50%;background:${t.sup};border:1px solid ${t.testo}33"></span>
+                <span style="width:9px;height:9px;border-radius:50%;background:${t.testo}"></span>
+              </span>
+              <span style="font-size:.58rem;font-weight:900;text-transform:uppercase;color:${t.testo}">${nome}</span>
+            </button>`).join('')}
+        </div>
+        <div style="display:flex;flex-direction:column;gap:.6rem">
+          ${colore('Sfondo','bg',tema.bg,'setTema')}
+          ${colore('Riquadri e schede','sup',tema.sup,'setTema')}
+          ${colore('Testo','testo',tema.testo,'setTema')}
+          ${colore('Colore dell’azienda','acc',tema.acc,'setTema')}
+        </div>
+        <p style="font-size:.65rem;color:var(--t3);margin-top:.7rem;line-height:1.4">I grigi delle scritte si calcolano da soli, così restano leggibili sia su fondo scuro che chiaro.</p>
+      </section>
+
+      <!-- OMINO -->
+      <section>
+        <p style="${sSez}">La divisa della squadra</p>
+        <div style="${sCard};display:flex;align-items:center;gap:1.5rem;margin-bottom:.9rem">
+          <div style="background:var(--bg);border:1px solid var(--bordo);border-radius:1rem;padding:.8rem;display:flex">${omino(84)}</div>
+          <p style="font-size:.72rem;color:var(--t2);line-height:1.5">Mettigli i colori della vostra divisa: lo vedi in alto nella Home, ed è il segno che quell'app è della tua azienda.</p>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:.6rem">
+          ${colore('Caschetto','casco',om.casco,'setOmino')}
+          ${colore('Maglia','maglia',om.maglia,'setOmino')}
+          ${colore('Pantaloni','pant',om.pant,'setOmino')}
+          ${colore('Scarpe','scarpe',om.scarpe,'setOmino')}
+        </div>
+        <button onclick="resetAspetto()" style="${sBtn2};margin-top:1rem">Rimetti i colori di partenza</button>
+      </section>
+
+    </div>
+  </div>`;
+}
+
+function salvaDatiAzienda(){
+  const nome=val('i-nome'), mail=val('i-mail');
+  if(!nome) return avviso('Il nome dell\'azienda non può restare vuoto','ko');
+  if(!valida(mail)) return avviso('Email non valida','ko');
+  const cambiata = mail!==S.azienda.email;
+  save('azienda',{...S.azienda,nome,email:mail,emailConfermata:cambiata?false:S.azienda.emailConfermata});
+  addTimeline(cambiata?`Ha cambiato i dati dell'azienda (email da confermare)`:`Ha cambiato il nome dell'azienda in ${nome}`,'WARNING');
+  render();
+  avviso(cambiata?'Salvato. La nuova email va confermata (col server arriverà il codice)':'Dati salvati');
+}
+function setTema(chiave,valore){
+  const tema={...TEMA_BASE,...(S.azienda.tema||{}),[chiave]:valore};
+  save('azienda',{...S.azienda,tema});
+  applicaTema();
+  clearTimeout(S._tRender); S._tRender=setTimeout(render,400); // non ridisegna a ogni scatto del cursore
+}
+function setOmino(chiave,valore){
+  const omi={...OMINO_BASE,...(S.azienda.omino||{}),[chiave]:valore};
+  save('azienda',{...S.azienda,omino:omi});
+  applicaTema();
+  clearTimeout(S._tRender); S._tRender=setTimeout(render,400);
+}
+function temaPronto(nome){
+  save('azienda',{...S.azienda,tema:{...TEMI_PRONTI[nome]}});
+  applicaTema(); render(); avviso(`Tema «${nome}» applicato`);
+}
+function resetAspetto(){
+  if(!confirm('Rimettere i colori di partenza?')) return;
+  save('azienda',{...S.azienda,tema:{...TEMA_BASE},omino:{...OMINO_BASE}});
+  applicaTema(); render(); avviso('Colori rimessi come all\'inizio');
+}
+function delega(id){
+  const m=S.membri.find(x=>x.id===id); if(!m) return;
+  const ora=!m.admin;
+  if(ora && !confirm(`Dare a ${m.nome} ${m.cognome} i poteri di amministratore?\n\nPotrà cambiare le impostazioni dell'azienda.`)) return;
+  save('membri',S.membri.map(x=>x.id===id?{...x,admin:ora}:x));
+  if(S.account.id===id) save('account',{...S.account,admin:ora});
+  addTimeline(`${ora?'Ha nominato':'Ha tolto i poteri di'} amministratore ${ora?'':'a '}${m.nome} ${m.cognome}`,'WARNING');
+  render();
+  avviso(ora?`${m.nome} ora è amministratore`:`${m.nome} torna collaboratore`);
+}
+
 async function fotoProfilo(input){
   const f=input.files?.[0]; if(!f) return;
   const c=await comprimi(f,512,.8); if(!c) return;
@@ -1257,6 +1559,7 @@ function cancellaTutto(){
 }
 
 // ── AVVIO ──────────────────────────────────────────────────────
+applicaTema();
 if(S.account && S.account.stato==='attivo') registraDispositivo();
 render();
 meteo();
