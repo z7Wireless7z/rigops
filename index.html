@@ -1605,7 +1605,10 @@ applicaTema();
 if(S.account && S.account.stato==='attivo') registraDispositivo();
 render();
 meteo();
-if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
+/* updateViaCache:'none' = non prendere nemmeno sw.js dalla scorta del browser.
+   Senza, il telefono puo' continuare a usare il guardiano vecchio, e allora
+   nessun aggiornamento arriva mai. */
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).catch(()=>{});
 </script>
 </body>
 </html>
