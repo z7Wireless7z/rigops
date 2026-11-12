@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>RigOps</title>
-<meta name="theme-color" content="#0f172a">
+<meta name="theme-color" content="#09090b">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <script src="https://cdn.tailwindcss.com"></script>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Outfit:wght@700;800;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Outfit:wght@700;800;900&family=Unbounded:wght@800&display=swap" rel="stylesheet">
 <style>
   /* I colori dell'app stanno tutti qui dentro: il titolare li cambia da
      Impostazioni azienda e l'intera app cambia aspetto in un colpo solo. */
@@ -33,6 +33,8 @@
   }
   body { font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; background: var(--bg); color: var(--testo); }
   .fd { font-family: 'Outfit', sans-serif; }
+  /* Il carattere del marchio: solo per la scritta RigOps, mai per i titoli. */
+  .fm { font-family: 'Unbounded', 'Outfit', sans-serif; }
   * { box-sizing: border-box; scrollbar-width: none; -ms-overflow-style: none; }
   *::-webkit-scrollbar { display: none; }
   input, textarea, button, select { font-family: inherit; }
@@ -364,7 +366,8 @@ function renderAvviso(){
 //  ① ONBOARDING — Registra Azienda / Registra Operatore / Accedi
 // ══════════════════════════════════════════════════════════════
 function logoGrande(){
-  return `<img src="icons/icon-512.png" alt="RigOps" style="width:7.5rem;height:7.5rem;border-radius:2rem;object-fit:cover;box-shadow:0 0 50px rgba(var(--acc-rgb),.25)">`;
+  // Il marchio libero, senza riquadro: e' il modo in cui va mostrato in grande.
+  return `<img src="icons/marchio.png" alt="RigOps" style="height:8.5rem;width:auto;filter:drop-shadow(0 0 34px rgba(var(--acc-rgb),.28))">`;
 }
 
 function renderOnboarding(){
@@ -380,7 +383,7 @@ function renderScelta(){
   return `
     ${logoGrande()}
     <div style="text-align:center">
-      <h1 class="fd" style="font-size:2.75rem;font-weight:900;text-transform:uppercase;font-style:italic;letter-spacing:-.04em;line-height:1">RIG<span style="color:var(--acc)">OPS</span></h1>
+      <h1 class="fm" style="font-size:2.3rem;font-weight:800;letter-spacing:-.03em;line-height:1">Rig<span style="color:var(--acc)">Ops</span></h1>
       <p style="${sSot};margin-top:.5rem">Gestione squadre e cantieri</p>
     </div>
     <div style="width:100%;max-width:22rem;display:flex;flex-direction:column;gap:.9rem;margin-top:.5rem">
